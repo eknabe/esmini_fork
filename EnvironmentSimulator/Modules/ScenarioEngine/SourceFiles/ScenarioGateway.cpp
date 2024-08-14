@@ -22,6 +22,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>  /* Needed for getaddrinfo() and freeaddrinfo() */
 #include <unistd.h> /* Needed for close() */
+
+#include <utility>
 #endif
 
 using namespace scenarioengine;
@@ -908,7 +910,7 @@ int ScenarioGateway::updateObjectControllerType(int id, int controllerType)
     return 0;
 }
 
-int ScenarioGateway::updateObjectFrictionCoefficients(int id, double friction[4])
+int ScenarioGateway::updateObjectFrictionCoefficients(int id, std::vector<WheelData> wheel_data)
 {
     ObjectState* obj_state = getObjectStatePtrById(id);
 
@@ -918,10 +920,8 @@ int ScenarioGateway::updateObjectFrictionCoefficients(int id, double friction[4]
         return -1;
     }
 
-    for (int i = 0; i < 4; i++)
-    {
-        obj_state->state_.info.friction[i] = friction[i];
-    }
+    obj_state->state_.info.wheel_data = std::move(wheel_data);
+
     obj_state->dirty_ |= Object::DirtyBit::FRICTION;
 
     return 0;

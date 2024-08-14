@@ -24,6 +24,25 @@
 
 namespace scenarioengine
 {
+
+    struct WheelData
+    {
+        float x;  // x coordinate in vehicle coordinate system
+        float y;  // y coordinate in vehicle coordinate system
+        float z;  // z coordinate in vehicle coordinate system
+        float h;  // heading/yaw in global coordinate system
+        float p;  // pitch in global coordinate system
+        // float r;                     // roll in global coordinate system
+        // float width;                 // median width of the tire
+        // float wheel_radius;          // median radius of the wheel measured from the center of the wheel to the outer part of the tire
+        float friction_coefficient;  // the value describes the kinetic friction of the tyre's contact point
+        // float rotation_rate;         // rotation rate of the wheel
+        // float rim_radius;  // 	median radius of the rim measured from the center to the outer, visible part of the rim
+        int axle;   // 0=front, 1=next axle from front and so on. -1 indicates wheel is not existing.
+        int index;  // The index of the wheel on the axle, counting in the direction of positive-y, that is, right-to-left.
+        // std::string model_reference; // Opaque reference of an associated 3D model of the wheel
+    };
+
     class Controller;  // Forward declaration
     class OSCPrivateAction;
     class Event;
@@ -651,6 +670,8 @@ namespace scenarioengine
                 LOG("Vehicle category %s not supported yet", category.c_str());
             }
 
+            SetWheelData();
+
             return;
         }
 
@@ -689,6 +710,37 @@ namespace scenarioengine
                 role_ = static_cast<int>(Vehicle::Role::NONE);
             }
         }
+
+        void SetWheelData()
+        {
+            if (category_ == Category::CAR || category_ == Category::VAN || category_ == Category::TRUCK || category_ == Category::SEMITRAILER ||
+                category_ == Category::BUS || category_ == Category::TRAIN || category_ == Category::TRAM)
+            {
+                WheelData frontleftwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, 1};
+                WheelData frontrightwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, 0};
+                WheelData rearleftwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1, 1};
+                WheelData rearrightwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1, 0};
+                wheel_data = {frontleftwheel, frontrightwheel, rearleftwheel, rearrightwheel};
+            }
+            else if (category_ == Category::MOTORBIKE || category_ == Category::BICYCLE)
+            {
+                WheelData frontwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, 0};
+                WheelData rearwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1, 0};
+                wheel_data = {frontwheel, rearwheel};
+            }
+            else if (category_ == Category::TRAILER)
+            {
+                WheelData leftwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, 1};
+                WheelData rightwheel{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0, 0};
+                wheel_data = {leftwheel, rightwheel};
+            }
+        }
+
+        std::vector<WheelData>& GetWheelData()
+        {
+            return wheel_data;
+        }
+
         int                             ConnectTrailer(Vehicle* trailer);
         int                             DisconnectTrailer();
         void                            AlignTrailers();
@@ -696,6 +748,7 @@ namespace scenarioengine
         static std::string              Role2String(int role);
         std::shared_ptr<TrailerCoupler> trailer_coupler_;  // mounting point to any tow vehicle
         std::shared_ptr<TrailerHitch>   trailer_hitch_;    // mounting point to any tow vehicle
+        std::vector<WheelData>          wheel_data;
     };
 
     class Pedestrian : public Object
