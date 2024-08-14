@@ -316,13 +316,15 @@ int ScenarioEngine::step(double deltaSimTime)
             {
                 obj->speed_ = o->state_.info.speed;
             }
+
+            // Update wheel info, assuming first wheel is steering wheel on front axle
             if (o->dirty_ & Object::DirtyBit::WHEEL_ANGLE)
             {
-                obj->wheel_angle_ = o->state_.info.wheel_angle;
+                obj->wheel_angle_ = o->state_.info.wheel_data[0].h;
             }
             if (o->dirty_ & Object::DirtyBit::WHEEL_ROTATION)
             {
-                obj->wheel_rot_ = o->state_.info.wheel_rot;
+                obj->wheel_rot_ = o->state_.info.wheel_data[0].p;
             }
             o->clearDirtyBits();
         }
@@ -423,6 +425,11 @@ int ScenarioEngine::step(double deltaSimTime)
                                          obj->front_axle_.positionX,
                                          obj->front_axle_.positionZ,
                                          &obj->pos_);
+
+            if (obj->type_ == Object::Type::VEHICLE)
+            {
+                scenarioGateway.updateObjectWheelData(obj->id_, static_cast<Vehicle*>(obj)->GetWheelData());
+            }
         }
     }
 
@@ -727,12 +734,12 @@ void ScenarioEngine::prepareGroundTruth(double dt)
             }
             if (o->dirty_ & Object::DirtyBit::WHEEL_ANGLE)
             {
-                obj->wheel_angle_ = o->state_.info.wheel_angle;
+                obj->wheel_angle_ = o->state_.info.wheel_data[0].h;
                 obj->SetDirtyBits(Object::DirtyBit::WHEEL_ANGLE);
             }
             if (o->dirty_ & Object::DirtyBit::WHEEL_ROTATION)
             {
-                obj->wheel_rot_ = o->state_.info.wheel_rot;
+                obj->wheel_rot_ = o->state_.info.wheel_data[0].p;
                 obj->SetDirtyBits(Object::DirtyBit::WHEEL_ROTATION);
             }
         }
@@ -820,16 +827,6 @@ void ScenarioEngine::prepareGroundTruth(double dt)
                 }
             }
 
-            if (obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ANGLE))
-            {
-                scenarioGateway.updateObjectWheelAngle(obj->id_, simulationTime_, obj->wheel_angle_);
-            }
-
-            if (obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ROTATION))
-            {
-                scenarioGateway.updateObjectWheelRotation(obj->id_, simulationTime_, obj->wheel_rot_);
-            }
-
             // store current values for next loop
             obj->state_old.pos_x  = obj->pos_.GetX();
             obj->state_old.pos_y  = obj->pos_.GetY();
@@ -882,10 +879,8 @@ void ScenarioEngine::prepareGroundTruth(double dt)
         // Report updated pos values to the gateway
         scenarioGateway.updateObjectPos(obj->id_, simulationTime_, &obj->pos_);
 
-        // TODO: Friction and wheel data starts here
-
         // Wheels (including friction) only needs updates for vehicles
-        if (obj->type_ == 1)
+        if (obj->type_ == Object::Type::VEHICLE)
         {
             auto*                   vehicle    = dynamic_cast<Vehicle*>(obj);
             std::vector<WheelData>& wheel_data = vehicle->GetWheelData();
@@ -895,23 +890,16 @@ void ScenarioEngine::prepareGroundTruth(double dt)
             double friction_global = roadmanager::Position::GetOpenDrive()->GetFriction();
 
             // Update wheel positions
-            for (auto wheel : wheel_data)
+            for (auto& wheel : wheel_data)
             {
-                if (wheel.axle == 0)
+                if (wheel.axle == 0 && obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ANGLE))
                 {
-                    wheel.x = obj->front_axle_.positionX;
-                    wheel.y = wheel.index == 0 ? -obj->front_axle_.trackWidth / 2 : obj->front_axle_.trackWidth / 2;
-                    wheel.z = 0;
-                    wheel.h = obj->wheel_angle_;
-                    wheel.p = obj->wheel_rot_;
+                    wheel.h = static_cast<float>(obj->wheel_angle_);  // I assume always 0 due to fixed rear axis. Better to have = 0?
                 }
-                else if (wheel.axle == 1)
+
+                if (obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ROTATION))
                 {
-                    wheel.x = obj->rear_axle_.positionX;
-                    wheel.y = wheel.index == 0 ? -obj->rear_axle_.trackWidth / 2 : obj->rear_axle_.trackWidth / 2;
-                    wheel.z = 0;
-                    wheel.h = obj->wheel_angle_;  // I asusme always 0 due to fixed rear axis. Better to have = 0?
-                    wheel.p = obj->wheel_rot_;
+                    wheel.p = static_cast<float>(obj->wheel_rot_);
                 }
 
                 // Update wheel frictions
@@ -949,7 +937,7 @@ void ScenarioEngine::prepareGroundTruth(double dt)
                     wheel.friction_coefficient = friction_global;
                 }
             }
-            scenarioGateway.updateObjectFrictionCoefficients(obj->id_, wheel_data);
+            scenarioGateway.updateObjectWheelData(obj->id_, wheel_data);
         }
 
         // Now that frame is complete, reset dirty bits to avoid circulation

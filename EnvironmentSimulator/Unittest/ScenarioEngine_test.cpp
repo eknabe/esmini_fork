@@ -3089,10 +3089,10 @@ TEST(Friction, TestFrictionPerWheel)
 
     // time = 0.0
     ObjectStateStruct* state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     while (se->getSimulationTime() < 1.8 + SMALL_NUMBER)
     {
@@ -3100,10 +3100,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     while (se->getSimulationTime() < 1.9 + SMALL_NUMBER)
     {
@@ -3111,10 +3111,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 0.8, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 0.8, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     while (se->getSimulationTime() < 3.9 + SMALL_NUMBER)
     {
@@ -3122,10 +3122,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     while (se->getSimulationTime() < 4.0 + SMALL_NUMBER)
     {
@@ -3133,10 +3133,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 0.8, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 0.8, 1E-3);
 
     while (se->getSimulationTime() < 12.1 + SMALL_NUMBER)
     {
@@ -3144,10 +3144,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 0.4, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 0.4, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 0.4, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 0.4, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     while (se->getSimulationTime() < 13.7 + SMALL_NUMBER)
     {
@@ -3155,10 +3155,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 0.4, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 0.4, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 0.4, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 0.4, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 0.4, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 0.4, 1E-3);
 
     while (se->getSimulationTime() < 20.0 + SMALL_NUMBER)
     {
@@ -3166,10 +3166,10 @@ TEST(Friction, TestFrictionPerWheel)
         se->prepareGroundTruth(0.0);
     }
     state = &gw->objectState_[0]->state_;
-    EXPECT_NEAR(state->info.friction[0], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[1], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[2], 1.0, 1E-3);
-    EXPECT_NEAR(state->info.friction[3], 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[0].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[1].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[2].friction_coefficient, 1.0, 1E-3);
+    EXPECT_NEAR(state->info.wheel_data[3].friction_coefficient, 1.0, 1E-3);
 
     delete se;
 }
