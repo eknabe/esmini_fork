@@ -1765,4 +1765,4 @@ if __name__ == "__main__":
         # example: smoke_test.py test_follow_ghost
         unittest.main(argv=['ignored', '-v', 'TestSuite.' + sys.argv[1]])
     else:
-        unittest.main(verbosity=2, durations=0)
+        unittest.main(verbosity=2)
