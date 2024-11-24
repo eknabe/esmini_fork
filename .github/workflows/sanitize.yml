@@ -20,8 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4.1.7
         with:
-          ref: dev
           submodules: true
+          
+      - name: Conditional Checkout
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            git checkout dev
+          fi          
 
       - uses: ./.github/actions/setup_tools_shared
 
