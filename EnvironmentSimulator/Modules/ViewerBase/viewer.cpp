@@ -28,6 +28,7 @@
 #include <osgDB/Registry>
 #include <osgDB/WriteFile>
 #include <osgUtil/SmoothingVisitor>
+#include <osg/PolygonOffset>
 #include <osgUtil/Tessellator>  // to tessellate multiple contours
 #include <osgUtil/Optimizer>    // to flatten transform nodes
 
@@ -1450,18 +1451,12 @@ Viewer::Viewer(roadmanager::OpenDrive* odrManager,
     root_origin2odr_ = new osg::MatrixTransform;
     rootnode_->addChild(root_origin2odr_);
 
-    ClearNodeMaskBits(NodeMask::NODE_MASK_TRAIL_LINES);  // hide trails per default
-    ClearNodeMaskBits(NodeMask::NODE_MASK_TRAIL_DOTS);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_OSI_LINES);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_OSI_POINTS);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_OBJECT_SENSORS);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_ODR_FEATURES);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_ENTITY_BB_WF);
-    ClearNodeMaskBits(NodeMask::NODE_MASK_INFO_PER_OBJ);
-    SetNodeMaskBits(NodeMask::NODE_MASK_ENTITY_MODEL);
-    SetNodeMaskBits(NodeMask::NODE_MASK_INFO);
-    SetNodeMaskBits(NodeMask::NODE_MASK_TRAJECTORY_LINES);
-    SetNodeMaskBits(NodeMask::NODE_MASK_ROUTE_WAYPOINTS);
+    // establish initial node mask settings, show or hide elements by default
+    SetNodeMaskBits(NodeMask::NODE_MASK_ENTITY_MODEL | NODE_MASK_MARKING | NODE_MASK_OBJECT_SOLID | NODE_MASK_INFO | NODE_MASK_TRAJECTORY_LINES |
+                    NODE_MASK_ROUTE_WAYPOINTS | NODE_MASK_ENTITY_BB_WF | NODE_MASK_OBJECT_WF);
+
+    ClearNodeMaskBits(NODE_MASK_TRAIL_LINES | NODE_MASK_TRAIL_DOTS | NODE_MASK_OSI_LINES | NODE_MASK_OSI_POINTS | NODE_MASK_OBJECT_SENSORS |
+                      NODE_MASK_ODR_FEATURES | NODE_MASK_INFO_PER_OBJ);
 
     roadSensors_ = new osg::Group;
     roadSensors_->setNodeMask(NodeMask::NODE_MASK_ODR_FEATURES);
@@ -2662,56 +2657,61 @@ bool Viewer::CreateRoadLines(Viewer* viewer, roadmanager::OpenDrive* od)
     return true;
 }
 
-int Viewer::DrawMarking(roadmanager::RMObject* object)
+int Viewer::DrawMarking(roadmanager::RMObject* object, osg::Group* parent)
 {
-    for (auto& marking : object->GetMarkingsWithPoints())  // marking
+    for (auto& marking : object->GetMarkingsWithPoints())  // get all the marking definitions for the object
     {
-        for (auto& segment : marking.GetMarkingSegments())  // marking points
+        osg::ref_ptr<osg::Group> group = new osg::Group();
+        for (auto& segment : marking.GetMarkingSegments())  // get all segments/edges for each marking definition
         {
-            for (auto& points : segment.GetAllPoints())  // marking point
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+
+            for (auto& points : segment.GetAllPoints())  // get all points per segment
             {
-                osg::ref_ptr<osg::Group>     group        = new osg::Group();
-                osg::ref_ptr<osg::Vec3Array> vertices_top = new osg::Vec3Array(points.size());  // one set at bottom and one at top
-
-                for (int i = 0; i < points.size(); i += 4)
+                if (points.size() != 4)
                 {
-                    (*vertices_top)[i + 0].set(static_cast<float>(points[i + 0].x - origin_[0]),
-                                               static_cast<float>(points[i + 0].y - origin_[1]),
-                                               static_cast<float>(points[i + 0].z));
-                    (*vertices_top)[i + 1].set(static_cast<float>(points[i + 1].x - origin_[0]),
-                                               static_cast<float>(points[i + 1].y - origin_[1]),
-                                               static_cast<float>(points[i + 1].z));
-                    (*vertices_top)[i + 2].set(static_cast<float>(points[i + 2].x - origin_[0]),
-                                               static_cast<float>(points[i + 2].y - origin_[1]),
-                                               static_cast<float>(points[i + 2].z));
-                    (*vertices_top)[i + 3].set(static_cast<float>(points[i + 3].x - origin_[0]),
-                                               static_cast<float>(points[i + 3].y - origin_[1]),
-                                               static_cast<float>(points[i + 3].z));
+                    LOG_INFO("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
                 }
+                osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array(points.size());  // one set at bottom and one at top
 
+                (*vertices)[0].set(static_cast<float>(points[0].x - origin_[0]),
+                                   static_cast<float>(points[0].y - origin_[1]),
+                                   static_cast<float>(points[0].z));
+                (*vertices)[1].set(static_cast<float>(points[1].x - origin_[0]),
+                                   static_cast<float>(points[1].y - origin_[1]),
+                                   static_cast<float>(points[1].z));
+                (*vertices)[2].set(static_cast<float>(points[2].x - origin_[0]),
+                                   static_cast<float>(points[2].y - origin_[1]),
+                                   static_cast<float>(points[2].z));
+                (*vertices)[3].set(static_cast<float>(points[3].x - origin_[0]),
+                                   static_cast<float>(points[3].y - origin_[1]),
+                                   static_cast<float>(points[3].z));
+                for (int i = 0; i < 4; i++)
+                {
+                    if (fabs(points[i].x) > 1e4 || fabs(points[i].y) > 1e4)
+                    {
+                        printf("vertices %d: %.2f %.2f\n", i, points[i].x, points[i].y);
+                    }
+                }
                 // Finally create and add geometry
-                osg::ref_ptr<osg::Geode>    geode = new osg::Geode;
                 osg::ref_ptr<osg::Geometry> geom  = new osg::Geometry;
-
-                geom->setVertexArray(vertices_top.get());
+                osg::ref_ptr<osg::Vec4Array> color_array = new osg::Vec4Array;
+                color_array->push_back(ODR2OSGColor(marking.GetColor()));
+                geom->setVertexArray(vertices.get());
                 geom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, points.size()));
-
-                // osgUtil::SmoothingVisitor::smooth(*geom, 0.5);
+                geom->setColorArray(color_array);
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                osgUtil::SmoothingVisitor::smooth(*geom, 0.0);
                 geom->setDataVariance(osg::Object::STATIC);
                 geom->setUseDisplayList(true);
+                geom->getOrCreateStateSet()->setAttributeAndModes(new osg::PolygonOffset(-POLYGON_OFFSET_ROADMARKS, -SIGN(POLYGON_OFFSET_ROADMARKS)));
                 geode->addDrawable(geom);
-
-                osg::Vec4                   color     = ODR2OSGColor(marking.GetColor());
-                osg::ref_ptr<osg::Material> material_ = new osg::Material;
-                material_->setDiffuse(osg::Material::FRONT_AND_BACK, color);
-                material_->setAmbient(osg::Material::FRONT_AND_BACK, color);
-                geode->getOrCreateStateSet()->setAttributeAndModes(material_.get());
-
-                group->addChild(geode);
-                group->setNodeMask(NODE_MASK_MARKING);
-                env_origin2odr_->addChild(group);
             }
+            group->addChild(geode);
         }
+
+        group->setNodeMask(NODE_MASK_MARKING);
+        parent->addChild(group);
     }
     return 0;
 }
@@ -3007,7 +3007,9 @@ osg::ref_ptr<osg::ShapeDrawable> Viewer::GetBoxShapeModel(roadmanager::RMObject*
                                             static_cast<float>(GetViewerDimension(object->GetLength())),
                                             static_cast<float>(GetViewerDimension(object->GetWidth())),
                                             static_cast<float>(GetViewerDimension(object->GetHeight()))));
+
     shape->setColor(GetObjectColor(object->GetType()));
+
     return shape;
 }
 
@@ -3040,72 +3042,64 @@ void Viewer::UpdateModel(roadmanager::RMObject*                       object,
 void Viewer::AddModel(bool                                         IsMarkingAvailable,
                       roadmanager::RMObject*                       object,
                       osg::ref_ptr<osg::PositionAttitudeTransform> tx,
-                      osg::ref_ptr<osg::Group>                     objGroup)
+                      osg::ref_ptr<osg::Group>                     parent)
 {
-    // add current LOD and create a new one
-    osg::ref_ptr<osg::LOD>   lod      = new osg::LOD();
-    osg::ref_ptr<osg::Group> LODGroup = new osg::Group();
-    lod->addChild(LODGroup);
-    lod->setRange(0, 0, LOD_DIST_ROAD_FEATURES + MAX(GetViewerDimension(object->GetLength()), GetViewerDimension(object->GetWidth())));
-    objGroup->addChild(lod);
+    parent->addChild(tx);
+    osg::ref_ptr<osg::Node> bb_wf;  // handle to the shape that will be the wireframed bounding box
 
-    osg::ref_ptr<osg::Geode> bb_wf = new osg::Geode;
-    bb_wf->addDrawable(new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0, 0.0, object->GetHeight().Get() / 2.0),
-                                                           object->GetLength().Get(),
-                                                           object->GetWidth().Get(),
-                                                           object->GetHeight().Get())));
+    if (IsMarkingAvailable)
+    {
+        // Reuse created 3D bounding box model for wireframe representation of objects with markings
+        bb_wf = tx->getChild(0);
+        bb_wf->setNodeMask(NODE_MASK_OBJECT_WF);
+    }
+    else
+    {
+        // Create separate wireframe object for objects lacking markings
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+        geode->addDrawable(new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0, 0.0, object->GetHeight().Get() / 2.0),
+                                                               object->GetLength().Get(),
+                                                               object->GetWidth().Get(),
+                                                               object->GetHeight().Get())));
+
+        tx->getChild(0)->setNodeMask(NODE_MASK_OBJECT_SOLID);
+        tx->addChild(geode);
+        bb_wf = static_cast<osg::ref_ptr<osg::Node>>(geode);
+    }
+
     osg::PolygonMode* polygonMode = new osg::PolygonMode;
     polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE);
-    bb_wf->getOrCreateStateSet()->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
-    bb_wf->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
-    bb_wf->setNodeMask(NodeMask::NODE_MASK_OBJECT_WF);
-    tx->addChild(bb_wf);
-    SetNodeMaskBits(NODE_MASK_MARKING | NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF, NODE_MASK_OBJECT_WF);
-
-    if (!IsMarkingAvailable)  // show bounding box for objects without markings
-    {
-        LODGroup->addChild(tx);
-        tx->setNodeMask(NODE_MASK_OBJECT_SOLID);
-        SetNodeMaskBits(NODE_MASK_MARKING | NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF, NODE_MASK_OBJECT_SOLID);
-    }
+    bb_wf->getOrCreateStateSet()->setAttributeAndModes(polygonMode, osg::StateAttribute::ON);
+    bb_wf->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
 }
 
 // create object from given object and scales
-void Viewer::AddOutlineModel(bool IsMarkingAvailable, osg::ref_ptr<osg::Geode> geode, osg::ref_ptr<osg::Group> objGroup)
+void Viewer::AddOutlineModel(bool IsMarkingAvailable, osg::ref_ptr<osg::Geode> geode, osg::ref_ptr<osg::Group> parent)
 {
-    osg::ref_ptr<osg::Geode>  bb_wf = new osg::Geode;
-    osg::ComputeBoundsVisitor cbv;
-    geode->accept(cbv);
-    osg::BoundingBox modelBB;
-    modelBB = cbv.getBoundingBox();
-    bb_wf->addDrawable(new osg::ShapeDrawable(new osg::Box(modelBB.center(),
-                                                           modelBB._max.x() - modelBB._min.x(),
-                                                           modelBB._max.y() - modelBB._min.y(),
-                                                           modelBB._max.z() - modelBB._min.z())));
-    osg::PolygonMode* polygonMode = new osg::PolygonMode;
-    polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE);
-    bb_wf->getOrCreateStateSet()->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
-    bb_wf->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
-    bb_wf->setNodeMask(NodeMask::NODE_MASK_OBJECT_WF);
-    objGroup->addChild(bb_wf);
-    SetNodeMaskBits(NODE_MASK_MARKING | NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF, NODE_MASK_OBJECT_WF);
-
-    if (!IsMarkingAvailable)  // show bounding box only for objects without markings
+    if (IsMarkingAvailable)  // show bounding box only for objects without markings
     {
-        objGroup->addChild(geode);
-        geode->setNodeMask(NODE_MASK_OBJECT_SOLID);
-        SetNodeMaskBits(NODE_MASK_MARKING | NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF, NODE_MASK_OBJECT_SOLID);
+        osg::PolygonMode* polygonMode = new osg::PolygonMode;
+        polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE);
+        geode->getOrCreateStateSet()->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
+        geode->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+        geode->setNodeMask(NODE_MASK_OBJECT_WF);
     }
+    else
+    {
+        geode->setNodeMask(NODE_MASK_OBJECT_SOLID);
+    }
+    parent->addChild(geode);
 }
 
 bool viewer::Viewer::CreateRepeats(roadmanager::RMObject*                       object,
                                    osg::ref_ptr<osg::PositionAttitudeTransform> tx,
-                                   osg::ref_ptr<osg::Group>                     OutlineGroup,
-                                   osg::ref_ptr<osg::Group>                     objGroup)
+                                   osg::ref_ptr<osg::Group>                     outlineGroup,
+                                   osg::ref_ptr<osg::Group>                     parent)
 {
     bool      repeatAdded = false;
     double    scale_x = 1.0, scale_y = 1.0, scale_z = 1.0;
-    osg::Vec4 color = GetObjectColor(object->GetType());
+    osg::Vec4 color_obj = GetObjectColor(object->GetType());
+    osg::Vec4 color_wf = osg::Vec4(1.0, 1.0, 1.0, 1.0);
     for (auto& repeat : object->GetRepeats())
     {
         for (auto& repeatedObj : object->GetRepeatedObjects(repeat, roadmanager::Repeat::ZeroDistanceRepeatStrategy::MULTIPLE_OBJECTS))
@@ -3115,8 +3109,8 @@ bool viewer::Viewer::CreateRepeats(roadmanager::RMObject*                       
                 if (repeatedObj->GetNumberOfOutlines() > 0)
                 {
                     osg::ref_ptr<osg::Geode> geodeNew = new osg::Geode;
-                    CreateOutlineModel(repeatedObj->GetOutline(0), color, geodeNew);  // zero distance outlie. only one outline shall be avilable
-                    AddOutlineModel(object->GetNumberOfMarkings() > 0, geodeNew, objGroup);
+                    CreateOutlineModel(repeatedObj->GetOutline(0), color_obj, geodeNew);  // zero distance outlie. only one outline shall be avilable
+                    AddOutlineModel(object->GetNumberOfMarkings() > 0, geodeNew, parent);
                 }
                 else
                 {
@@ -3126,7 +3120,7 @@ bool viewer::Viewer::CreateRepeats(roadmanager::RMObject*                       
                     scale_y = GetViewerDimension(repeatedObj->GetWidth().Get()) / GetViewerDimension(object->GetWidth().Get());
                     scale_z = GetViewerDimension(repeatedObj->GetHeight().Get()) / GetViewerDimension(object->GetHeight().Get());
                     UpdateModel(repeatedObj, scale_x, scale_y, scale_z, clone);
-                    AddModel(object->GetNumberOfMarkings() > 0, repeatedObj, clone, objGroup);
+                    AddModel(object->GetNumberOfMarkings() > 0, repeatedObj, clone, parent);
                 }
             }
             else
@@ -3139,15 +3133,15 @@ bool viewer::Viewer::CreateRepeats(roadmanager::RMObject*                       
                     {
                         outline.GetScale(scale_x, scale_y, scale_z);
                         osg::ref_ptr<osg::PositionAttitudeTransform> xform = new osg::PositionAttitudeTransform();
-                        xform->addChild(OutlineGroup->getChild(i));
+                        xform->addChild(outlineGroup->getChild(i));
                         UpdateModel(repeatedObj, scale_x, scale_y, scale_z, xform);
-                        AddModel(object->GetNumberOfMarkings() > 0, repeatedObj, xform, objGroup);
+                        AddModel(object->GetNumberOfMarkings() > 0, repeatedObj, xform, parent);
                     }
                     else
                     {
                         osg::ref_ptr<osg::Geode> geodeNew = new osg::Geode;
-                        CreateOutlineModel(outline, color, geodeNew);  // create outline model
-                        AddOutlineModel(object->GetNumberOfMarkings() > 0, geodeNew, objGroup);
+                        CreateOutlineModel(outline, object->GetNumberOfMarkings() > 0 ? color_wf : color_obj, geodeNew);  // create outline model
+                        AddOutlineModel(object->GetNumberOfMarkings() > 0, geodeNew, parent);
                     }
                 }
             }
@@ -3165,11 +3159,27 @@ int Viewer::CreateRoadSignsAndObjects(roadmanager::OpenDrive* od)
         CreateRoadSignals(objGroup, road->GetSignals());
         for (auto& object : road->GetRoadObjects())  // always create viewer object
         {
-            osg::Vec4                                    color        = GetObjectColor(object->GetType());
+            osg::Vec4                                    color;
             osg::ref_ptr<osg::Geode>                     geode        = new osg::Geode;
-            osg::ref_ptr<osg::Group>                     OutlineGroup = new osg::Group();
+            osg::ref_ptr<osg::LOD>                       objLOD       = new osg::LOD();
+            osg::ref_ptr<osg::Group>                     lodGroup     = new osg::Group;
             osg::ref_ptr<osg::PositionAttitudeTransform> tx           = nullptr;
+            osg::ref_ptr<osg::Group>                     OutlineGroup = new osg::Group();
             double                                       scale_x = 1.0, scale_y = 1.0, scale_z = 1.0;
+
+            if (object->GetNumberOfMarkings() > 0)
+            {
+                color = osg::Vec4(1.0, 1.0, 1.0, 1.0);
+            }
+            else
+            {
+                color = GetObjectColor(object->GetType());
+            }
+
+            objGroup->addChild(objLOD);
+            objLOD->addChild(lodGroup);
+            objLOD->setRange(0, 0, LOD_DIST_ROAD_FEATURES + MAX(GetViewerDimension(object->GetLength()), GetViewerDimension(object->GetWidth())));
+
             if (object->GetNumberOfOutlines() == 0)  // non outlines
             {
                 tx = GetModel(object->GetName(), object);  // Get the 3d model
@@ -3198,22 +3208,23 @@ int Viewer::CreateRoadSignsAndObjects(roadmanager::OpenDrive* od)
                         object->GetId());
                 }
             }
-            if (!CreateRepeats(object, tx, OutlineGroup, objGroup))
+
+            if (!CreateRepeats(object, tx, OutlineGroup, lodGroup))
             {
                 if (tx != nullptr)
                 {
                     UpdateModel(object, scale_x, scale_y, scale_z, tx);  // update object with position and scale
-                    AddModel(object->GetNumberOfMarkings() > 0, object, tx, objGroup);
+                    AddModel(object->GetNumberOfMarkings() > 0, object, tx, lodGroup);
                 }
                 else
                 {
                     for (unsigned int i = 0; i < OutlineGroup->getNumChildren(); i++)
                     {
-                        AddOutlineModel(object->GetNumberOfMarkings() > 0, dynamic_cast<osg::Geode*>(OutlineGroup->getChild(i)), objGroup);
+                        AddOutlineModel(object->GetNumberOfMarkings() > 0, dynamic_cast<osg::Geode*>(OutlineGroup->getChild(i)), lodGroup);
                     }
                 }
             }
-            DrawMarking(object);
+            DrawMarking(object, lodGroup);
         }
     }
 
@@ -3834,32 +3845,29 @@ bool ViewerEventHandler::handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActi
         {
             if (ea.getEventType() & osgGA::GUIEventAdapter::KEYDOWN)
             {
-                int mask = viewer_->GetNodeMaskBit(viewer::NodeMask::NODE_MASK_ENTITY_MODEL | viewer::NodeMask::NODE_MASK_ENTITY_BB_WF) /
+                int mode_bits = NODE_MASK_ENTITY_MODEL | NODE_MASK_OBJECT_SOLID | NODE_MASK_MARKING | NODE_MASK_ENTITY_BB_WF | NODE_MASK_OBJECT_WF;
+                int mask      = viewer_->GetNodeMaskBit(viewer::NodeMask::NODE_MASK_ENTITY_MODEL | viewer::NodeMask::NODE_MASK_ENTITY_BB_WF) /
                            viewer::NodeMask::NODE_MASK_ENTITY_MODEL;
 
                 // Toggle between modes: 0: none, 1: model only, 2: bounding box, 3. model + Bounding box
-                mask = ((mask + 1) % 4) * viewer::NodeMask::NODE_MASK_ENTITY_MODEL;
-
-                viewer_->SetNodeMaskBits(viewer::NodeMask::NODE_MASK_ENTITY_MODEL | viewer::NodeMask::NODE_MASK_ENTITY_BB_WF, mask);
-
-                int allMaskActive = NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF | NODE_MASK_MARKING;
-
-                if (viewer_->GetNodeMaskBit(allMaskActive) / (NODE_MASK_OBJECT_SOLID | NODE_MASK_OBJECT_WF | NODE_MASK_MARKING) == 1)
+                mask = (mask + 1) % 4;
+                if (mask == 0)
                 {
-                    viewer_->SetNodeMaskBits(allMaskActive, NODE_MASK_NONE);
+                    viewer_->SetNodeMaskBits(mode_bits, NODE_MASK_NONE);
                 }
-                else if (viewer_->GetNodeMaskBit(allMaskActive) / (NODE_MASK_OBJECT_SOLID | NODE_MASK_MARKING) == 1 ||
-                         viewer_->GetNodeMaskBit(allMaskActive) / (NODE_MASK_OBJECT_SOLID) == 1)
+                else if (mask == 1)
                 {
-                    viewer_->SetNodeMaskBits(allMaskActive, NODE_MASK_OBJECT_WF);
+                    viewer_->SetNodeMaskBits(mode_bits, NODE_MASK_ENTITY_MODEL | NODE_MASK_OBJECT_SOLID | NODE_MASK_MARKING);
                 }
-                else if (viewer_->GetNodeMaskBit(allMaskActive) / (NODE_MASK_OBJECT_WF) == 1)
+                else if (mask == 2)
                 {
-                    viewer_->SetNodeMaskBits(allMaskActive | NODE_MASK_MARKING);
+                    viewer_->SetNodeMaskBits(mode_bits, NODE_MASK_ENTITY_BB_WF | NODE_MASK_OBJECT_WF);
                 }
-                else
+                else if (mask == 3)
                 {
-                    viewer_->SetNodeMaskBits(allMaskActive, NODE_MASK_OBJECT_SOLID | NODE_MASK_MARKING);
+                    viewer_->SetNodeMaskBits(
+                        mode_bits,
+                        NODE_MASK_ENTITY_MODEL | NODE_MASK_OBJECT_SOLID | NODE_MASK_MARKING | NODE_MASK_ENTITY_BB_WF | NODE_MASK_OBJECT_WF);
                 }
             }
         }
