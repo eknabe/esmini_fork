@@ -99,7 +99,9 @@ jobs:
       - uses: actions/checkout@v4.1.7
         with:
           submodules: true
+          fetch-tags: true
           fetch-depth: 200
+          ref: ${{ github.ref }}
 
       - uses: ./.github/actions/setup_tools_shared
 
@@ -262,7 +264,7 @@ jobs:
       - uses: actions/checkout@v4.1.7
         with:
           submodules: true
-          fetch-depth: 200
+          fetch-depth: 0
 
       # Generate build number based on offset from former AppVeyor CI machine
       - uses: ./.github/actions/generate_offset_run_number
@@ -292,3 +294,4 @@ jobs:
           files: |
             esmini-bin_${{ runner.os }}.zip
             esmini-demo_${{ runner.os }}.zip
+
