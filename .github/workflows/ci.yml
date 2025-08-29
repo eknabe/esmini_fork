@@ -293,3 +293,4 @@ jobs:
           files: |
             esmini-bin_${{ runner.os }}.zip
             esmini-demo_${{ runner.os }}.zip
+
