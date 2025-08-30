@@ -151,7 +151,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          name: 'esmini ${${GITHUB_REF_NAME#v}} (build ${{ env.BUILD_NUMBER }})'
+          name: 'esmini ${GITHUB_REF_NAME#v} (build ${{ env.BUILD_NUMBER }})'
           body: 'Demo and binaries. For information about changes and new features see [release notes](https://github.com/esmini/esmini/blob/master/release_notes.md).'
           files: |
             esmini-bin_${{ runner.os }}.zip
