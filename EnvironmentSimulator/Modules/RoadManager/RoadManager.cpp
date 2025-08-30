@@ -7824,6 +7824,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                                  0.0,
                                                  0.0);
                         rm_obj[i]->AddOutline(outline);
+                        rm_obj[i]->SetTunnelComponentType(RMObject::TunnelComponentType::TUNNEL_WALL);
                         road->AddObject(rm_obj[i]);
                     }
                 }
@@ -7875,6 +7876,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                              0.0,
                                              0.0);
                     rm_obj[2]->AddOutline(outline);
+                    rm_obj[2]->SetTunnelComponentType(RMObject::TunnelComponentType::TUNNEL_ROOF);
                     road->AddObject(rm_obj[2]);
 
                     for (auto o : rm_obj)

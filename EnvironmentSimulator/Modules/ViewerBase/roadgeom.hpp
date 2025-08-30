@@ -97,8 +97,12 @@ namespace roadgeom
                                                                                osg::ref_ptr<osg::Group> parent,
                                                                                std::string              exe_path);
         osg::ref_ptr<osg::PositionAttitudeTransform> LoadRoadFeature(roadmanager::Road* road, std::string filename, std::string exe_path);
-        int CreateOutlineObject(roadmanager::Outline* outline, osg::Vec4 color, const osg::Vec3d& origin, osg::ref_ptr<osg::Group> parent, id_t id);
-        int SaveToFile(std::string filename);
+        int                                          CreateOutlineObject(roadmanager::Outline*    outline,
+                                                                         osg::Vec4                color,
+                                                                         const osg::Vec3d&        origin,
+                                                                         osg::ref_ptr<osg::Group> parent,
+                                                                         std::string              name);
+        int                                          SaveToFile(std::string filename);
 
     private:
         unsigned int                                                   number_of_materials = 0;

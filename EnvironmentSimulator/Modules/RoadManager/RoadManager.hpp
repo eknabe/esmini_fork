@@ -1986,6 +1986,13 @@ namespace roadmanager
             WIND
         };
 
+        enum class TunnelComponentType
+        {
+            NO_TUNNEL,
+            TUNNEL_WALL,
+            TUNNEL_ROOF
+        };
+
         RMObject(double      s,
                  double      t,
                  id_t        id,
@@ -2133,6 +2140,14 @@ namespace roadmanager
         {
             return color_;
         }
+        const TunnelComponentType GetTunnelComponentType() const
+        {
+            return tunnel_component_type_;
+        }
+        void SetTunnelComponentType(const TunnelComponentType tunnel_component_type)
+        {
+            tunnel_component_type_ = tunnel_component_type;
+        }
 
     private:
         std::string            name_;
@@ -2152,7 +2167,8 @@ namespace roadmanager
         Repeat                *repeat_ = nullptr;
         std::vector<Repeat *>  repeats_;
         ParkingSpace           parking_space_;
-        float                  color_[4] = {0.0, 0.0, 0.0, 0.0};
+        float                  color_[4]              = {0.0, 0.0, 0.0, 0.0};
+        TunnelComponentType    tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
     };
 
     enum class SpeedUnit

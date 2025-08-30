@@ -60,6 +60,8 @@ const static double      friction_max       = 5.0;
 const static double      friction_default   = 1.0;
 const static std::string prefix_road        = "road_";
 const static std::string prefix_road_object = "road_object_";
+const static std::string prefix_tunnel_wall = "tunnel_wall_";
+const static std::string prefix_tunnel_roof = "tunnel_roof_";
 const static std::string prefix_road_signal = "road_signal_";
 const static std::string prefix_roadmark    = "roadmark_";
 
@@ -1105,7 +1107,17 @@ namespace roadgeom
             {
                 roadmanager::RMObject* object = road->GetRoadObject(o);
                 osg::Vec4              color;
-                tx = nullptr;
+                tx                   = nullptr;
+                std::string obj_type = prefix_road_object;  // road object is default
+                switch (object->GetTunnelComponentType())
+                {
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
+                        obj_type = prefix_tunnel_wall;
+                        break;
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
+                        obj_type = prefix_tunnel_roof;
+                        break;
+                }
 
                 for (unsigned int c = 0; c < 4; c++)
                 {
@@ -1118,7 +1130,7 @@ namespace roadgeom
                     for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                     {
                         roadmanager::Outline* outline = object->GetOutline(j);
-                        CreateOutlineObject(outline, color, origin, objGroup, object->GetId());
+                        CreateOutlineObject(outline, color, origin, objGroup, obj_type + std::to_string(object->GetId()));
                     }
                     LOG_INFO("Created outline geometry for object {}.", object->GetName());
                     LOG_DEBUG("  if it looks strange, e.g.faces too dark or light color, ");
@@ -1168,7 +1180,7 @@ namespace roadgeom
                                 for (unsigned int j = 0; j < object->GetNumberOfOutlines(); j++)
                                 {
                                     roadmanager::Outline* outline = object->GetOutline(j);
-                                    CreateOutlineObject(outline, color, origin, objGroup, object->GetId());
+                                    CreateOutlineObject(outline, color, origin, objGroup, obj_type + std::to_string(object->GetId()));
                                 }
                                 continue;
                             }
@@ -1463,7 +1475,7 @@ namespace roadgeom
                     }
                     if (tx != nullptr)
                     {
-                        tx->setName(prefix_road_object + std::to_string(object->GetId()));
+                        tx->setName(obj_type + std::to_string(object->GetId()));
                     }
                     else
                     {
@@ -1524,7 +1536,7 @@ namespace roadgeom
                                       osg::Vec4                color,
                                       const osg::Vec3d&        origin,
                                       osg::ref_ptr<osg::Group> parent,
-                                      id_t                     id)
+                                      std::string              name)
     {
         if (outline == 0)
             return -1;
@@ -1534,7 +1546,7 @@ namespace roadgeom
         int nrPoints = outline->closed_ ? static_cast<int>(outline->corner_.size()) + 1 : static_cast<int>(outline->corner_.size());
 
         osg::ref_ptr<osg::Group> group = new osg::Group();
-        group->setName(prefix_road_object + std::to_string(id));
+        group->setName(name);
 
         osg::ref_ptr<osg::Vec3Array> vertices_sides =
             new osg::Vec3Array(static_cast<unsigned int>(nrPoints) * 2);                                         // one set at bottom and one at top
