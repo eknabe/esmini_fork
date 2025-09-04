@@ -319,7 +319,14 @@ void SwarmTrafficAction::Start(double simTime)
 
     // Register model filenames from vehicle catalog
     // if no catalog loaded, use same model as central object
-    vehicle_pool_.Initialize(reader_, nullptr, true);
+    std::vector<unsigned int> categories = {Vehicle::Category::CAR,
+                                            Vehicle::Category::TRAILER,
+                                            Vehicle::Category::VAN,
+                                            Vehicle::Category::BUS,
+                                            Vehicle::Category::TRUCK,
+                                            Vehicle::Category::MOTORBIKE};
+
+    vehicle_pool_.Initialize(reader_, &categories, false, true);
 
     if (vehicle_pool_.GetVehicles().size() == 0)
     {

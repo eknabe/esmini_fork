@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <map>
+
 namespace scenarioengine
 {
 
@@ -22,21 +24,25 @@ namespace scenarioengine
     {
     public:
         VehiclePool() = default;
-        VehiclePool(ScenarioReader* reader, const std::vector<unsigned int>* categories, bool accept_trailers);
+        VehiclePool(ScenarioReader*                  reader,
+                    const std::vector<unsigned int>* categories,
+                    bool                             accept_disconnected_trailers,
+                    bool                             accept_cars_with_trailer);
         ~VehiclePool();
 
-        int                          Initialize(ScenarioReader* reader, const std::vector<unsigned int>* categories, bool accept_trailers);
+        int                          Initialize(ScenarioReader*                  reader,
+                                                const std::vector<unsigned int>* categories,
+                                                bool                             accept_disconnected_trailers,
+                                                bool                             accept_cars_with_trailer);
         int                          AddVehicle(Vehicle* vehicle);
         void                         DeleteVehicleAndTrailers(Vehicle* vehicle);
-        const std::vector<Vehicle*>& GetVehicles() const
-        {
-            return vehicle_pool_;
-        }
-        Vehicle* GetVehicle(unsigned int index);
-        Vehicle* GetRandomVehicle();
+        const std::vector<Vehicle*>& GetVehicles() const;
+        const std::vector<Vehicle*>& GetVehicles(std::string category) const;
+        Vehicle*                     GetVehicle(unsigned int index, std::string category = "");
+        Vehicle*                     GetRandomVehicle(std::string category = "");
 
     private:
-        std::vector<Vehicle*> vehicle_pool_;
+        std::map<std::string, std::vector<Vehicle*>> vehicle_pool_;
     };
 
 }  // namespace scenarioengine
