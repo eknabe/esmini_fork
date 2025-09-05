@@ -111,13 +111,13 @@ ControllerSumo::ControllerSumo(InitArgs* args) : Controller(args)
     options.push_back("--xml-validation");
     options.push_back("never");
 
-    std::vector<unsigned int> categories = {Vehicle::Category::CAR,
-                                            Vehicle::Category::VAN,
-                                            Vehicle::Category::BUS,
-                                            Vehicle::Category::TRUCK,
-                                            Vehicle::Category::TRAILER,
-                                            Vehicle::Category::MOTORBIKE};
-    vehicle_pool_.Initialize(scenario_engine_->GetScenarioReader(), &categories, false, false);
+    std::vector<std::pair<int, double>> categories = {{Vehicle::Category::CAR, 5.0},
+                                                      {Vehicle::Category::VAN, 2.0},
+                                                      {Vehicle::Category::BUS, 1.0},
+                                                      {Vehicle::Category::TRUCK, 2.0},
+                                                      {Vehicle::Category::TRAILER, 0.0},  // allow trailsers, but no single trailers
+                                                      {Vehicle::Category::MOTORBIKE, 1.0}};
+    vehicle_pool_.Initialize(scenario_engine_->GetScenarioReader(), &categories, false);
 
     libsumo::Simulation::load(options);
     if (!libsumo::Simulation::isLoaded())

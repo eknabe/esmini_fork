@@ -11,17 +11,15 @@
  */
 
 #include <random>
+#include <numeric>
 #include "VehiclePool.hpp"
 #include "ScenarioReader.hpp"
 
 using namespace scenarioengine;
 
-VehiclePool::VehiclePool(ScenarioReader*                  reader,
-                         const std::vector<unsigned int>* categories,
-                         bool                             accept_disconnected_trailers,
-                         bool                             accept_cars_with_trailer)
+VehiclePool::VehiclePool(ScenarioReader* reader, const std::vector<std::pair<int, double>>* categories, bool accept_cars_with_trailer)
 {
-    Initialize(reader, categories, accept_disconnected_trailers, accept_cars_with_trailer);
+    Initialize(reader, categories, accept_cars_with_trailer);
 }
 
 void VehiclePool::DeleteVehicleAndTrailers(Vehicle* vehicle)
@@ -44,21 +42,6 @@ void VehiclePool::DeleteVehicleAndTrailers(Vehicle* vehicle)
     delete vehicle;
 }
 
-const std::vector<Vehicle*>& scenarioengine::VehiclePool::GetVehicles() const
-{
-    if (vehicle_pool_.empty())
-    {
-        static std::vector<Vehicle*> empty;
-        return empty;
-    }
-    else if (vehicle_pool_.size() > 1)
-    {
-        LOG_WARN("VehiclePool::GetVehicles(): Multiple categories in list, picking first");
-    }
-
-    return vehicle_pool_.begin()->second;
-}
-
 const std::vector<Vehicle*>& scenarioengine::VehiclePool::GetVehicles(std::string category) const
 {
     auto it = vehicle_pool_.find(category);
@@ -72,7 +55,7 @@ const std::vector<Vehicle*>& scenarioengine::VehiclePool::GetVehicles(std::strin
     }
     else
     {
-        return it->second;
+        return it->second.vehicles;
     }
 }
 
@@ -80,32 +63,29 @@ VehiclePool::~VehiclePool()
 {
     for (auto& category : vehicle_pool_)
     {
-        for (const auto& entry : category.second)
+        for (const auto& entry : category.second.vehicles)
         {
             DeleteVehicleAndTrailers(entry);
         }
-        category.second.clear();
+        category.second.vehicles.clear();
     }
 
     vehicle_pool_.clear();
 }
 
-int VehiclePool::Initialize(ScenarioReader*                  reader,
-                            const std::vector<unsigned int>* categories,
-                            bool                             accept_disconnected_trailers,
-                            bool                             accept_cars_with_trailer)
+int VehiclePool::Initialize(ScenarioReader* reader, const std::vector<std::pair<int, double>>* categories, bool accept_cars_with_trailer)
 {
     Catalogs* catalogs = reader->GetCatalogs();
 
-    std::vector<unsigned int> categories_tmp;
+    std::vector<std::pair<int, double>> categories_tmp;
     if (categories->empty())
     {
         // set default categories
-        categories_tmp = {Vehicle::Category::CAR,
-                          Vehicle::Category::BUS,
-                          Vehicle::Category::TRUCK,
-                          Vehicle::Category::VAN,
-                          Vehicle::Category::MOTORBIKE};
+        categories_tmp = {{Vehicle::Category::CAR, 5.0},
+                          {Vehicle::Category::BUS, 1.0},
+                          {Vehicle::Category::TRUCK, 2.0},
+                          {Vehicle::Category::VAN, 2.0},
+                          {Vehicle::Category::MOTORBIKE, 1.0}};
     }
     else
     {
@@ -123,17 +103,22 @@ int VehiclePool::Initialize(ScenarioReader*                  reader,
             for (size_t j = 0; j < catalog->entry_.size(); j++)
             {
                 Vehicle* vehicle = reader->parseOSCVehicle(catalog->entry_[j]->GetNode());
-                if (  // skip unwanted disconnected trailers
-                    !(accept_disconnected_trailers == false && vehicle->type_ == Vehicle::Category::TRAILER && vehicle->TowVehicle() == nullptr) &&
+                // include only vehicles of specified categories
+                auto it = std::find_if(categories->begin(),
+                                       categories->end(),
+                                       [vehicle](const std::pair<int, double>& c) { return c.first == vehicle->category_; });
+                if (it != categories->end() &&
                     // skip vehicles with trailers, unless trailer category specified
-                    !(vehicle->TrailerVehicle() != nullptr &&
-                      std::find(categories->begin(), categories->end(), Vehicle::Category::TRAILER) == categories->end()) &&
+                    !(vehicle->TrailerVehicle() != nullptr && std::find_if(categories->begin(),
+                                                                           categories->end(),
+                                                                           [](const std::pair<unsigned int, double>& c) {
+                                                                               return (c.first == Vehicle::Category::TRAILER);
+                                                                           }) == categories->end()) &&
                     // skip cars with trailers, unless accepted
-                    !(accept_cars_with_trailer == false && vehicle->TrailerVehicle() != nullptr && vehicle->category_ == Vehicle::Category::CAR) &&
-                    // include only vehicles of specified categories
-                    (std::find(categories->begin(), categories->end(), vehicle->category_) != categories->end()))
+                    !(accept_cars_with_trailer == false && vehicle->TrailerVehicle() != nullptr && vehicle->category_ == Vehicle::Category::CAR))
                 {
-                    vehicle_pool_[Vehicle::Category2String(vehicle->category_)].push_back(vehicle);
+                    vehicle_pool_[Vehicle::Category2String(vehicle->category_)].vehicles.push_back(vehicle);
+                    vehicle_pool_[Vehicle::Category2String(vehicle->category_)].weight = it->second;
                 }
                 else
                 {
@@ -143,6 +128,9 @@ int VehiclePool::Initialize(ScenarioReader*                  reader,
         }
     }
 
+    // calculate total weight of all populated categories
+    total_weight_ = std::accumulate(vehicle_pool_.begin(), vehicle_pool_.end(), 0.0, [](double sum, const auto& c) { return sum + c.second.weight; });
+
     return 0;
 }
 
@@ -150,7 +138,7 @@ int VehiclePool::AddVehicle(Vehicle* vehicle)
 {
     if (vehicle != nullptr)
     {
-        vehicle_pool_[Vehicle::Category2String(vehicle->category_)].push_back(vehicle);
+        vehicle_pool_[Vehicle::Category2String(vehicle->category_)].vehicles.push_back(vehicle);
         return static_cast<int>(vehicle_pool_.size() - 1);
     }
     return -1;
@@ -170,7 +158,7 @@ Vehicle* VehiclePool::GetVehicle(unsigned int index, std::string category)
         {
             LOG_WARN("VehiclePool::GetVehicle(): Multiple categories in list, picking first");
         }
-        vehicle_group = &vehicle_pool_.begin()->second;
+        vehicle_group = &vehicle_pool_.begin()->second.vehicles;
     }
     else
     {
@@ -181,7 +169,7 @@ Vehicle* VehiclePool::GetVehicle(unsigned int index, std::string category)
             LOG_ERROR("Vehicle category {} not found!", category);
             return nullptr;
         }
-        vehicle_group = &it->second;
+        vehicle_group = &it->second.vehicles;
     }
 
     if (vehicle_group == nullptr || vehicle_group->empty() || index >= vehicle_group->size())
@@ -199,12 +187,27 @@ Vehicle* VehiclePool::GetRandomVehicle(std::string category)
     auto it = vehicle_pool_.find(category);
     if (it == vehicle_pool_.end())
     {
-        // pick random category
-        it = vehicle_pool_.begin();
-        std::advance(it, SE_Env::Inst().GetRand().GetNumberBetween(0, static_cast<int>(vehicle_pool_.size() - 1)));
+        // pick random category based on distribution weights
+        double sample = SE_Env::Inst().GetRand().GetRealBetween(0, total_weight_);
+        // map sample to a category
+        double cumulative_weight = 0.0;
+        it                       = vehicle_pool_.begin();
+        for (; it != vehicle_pool_.end(); ++it)
+        {
+            cumulative_weight += it->second.weight;
+            if (sample < cumulative_weight + SMALL_NUMBER)
+            {
+                break;
+            }
+        }
     }
-    vehicle_group = &it->second;
+    if (it == vehicle_pool_.end())
+    {
+        LOG_INFO("Unsupported category {}", category);
+        return nullptr;
+    }
 
+    vehicle_group = &it->second.vehicles;
     if (vehicle_group == nullptr || vehicle_group->empty())
     {
         return nullptr;
