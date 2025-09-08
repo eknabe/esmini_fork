@@ -214,5 +214,5 @@ Vehicle* VehiclePool::GetRandomVehicle(std::string category)
     }
 
     // pick random vehicle from category
-    return (*vehicle_group)[SE_Env::Inst().GetRand().GetNumberBetween(0, static_cast<int>(vehicle_group->size() - 1))];
+    return (*vehicle_group)[static_cast<unsigned int>(SE_Env::Inst().GetRand().GetNumberBetween(0, static_cast<int>(vehicle_group->size() - 1)))];
 }

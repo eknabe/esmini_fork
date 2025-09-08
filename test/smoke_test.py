@@ -300,11 +300,11 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(re.search('\\n45.000, 0, Ego, 32.161, 688.644, -0.922, 1.461, 0.003, 0.000, 0.053, -0.000, 5.846', csv))
 
     def test_swarm(self):
-        log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/swarm.xosc'), COMMON_ESMINI_ARGS + ' --seed 0' + ' --fixed_timestep 0.1')
+        log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/swarm.xosc'), COMMON_ESMINI_ARGS + ' --seed 3' + ' --fixed_timestep 0.1')
 
         # Check some initialization steps
         self.assertTrue(re.search('Loading .*swarm.xosc', log)  is not None)
-        self.assertTrue(re.search('Using specified seed 0', log)  is not None)
+        self.assertTrue(re.search('Using specified seed 3', log)  is not None)
         self.assertTrue(re.search('^.0.00.*Ego New position:.*$\\n^.*Pos\\(10.20, 299.87, -0.53\\) Rot\\(1.56, 0.00, 0.00\\) roadId 0 laneId -3 s 300.00 offset 0.00 t -8.00', log, re.MULTILINE))
         self.assertTrue(re.search('^.0.00.*Init Ego TeleportAction initState -> startTransition -> runningState', log, re.MULTILINE))
         self.assertTrue(re.search('^.0.00.*Init Ego LongitudinalAction runningState -> endTransition -> completeState', log, re.MULTILINE))
@@ -320,24 +320,37 @@ class TestSuite(unittest.TestCase):
         if platform == "win32":
             self.assertTrue(re.search('^5.000, 0, Ego, 11.090, 349.861, -0.625, 1.550, 0.002, 0.000, 10.000, -0.000, 4.627', csv, re.MULTILINE))
             self.assertTrue(re.search('^5.000, 1, swarm_0, 9.030, 199.999, -0.348, 1.562, 0.002, 0.000, 30.000, -0.000, 1.315', csv, re.MULTILINE))
-            self.assertTrue(re.search('^5.000, 3, swarm_2, 12.551, 177.990, -0.307, 1.563, 0.002, 0.000, 30.000, -0.000, 5.272', csv, re.MULTILINE))
-            self.assertTrue(re.search('^5.000, 4, swarm_2\\+, 12.508, 171.990, -0.295, 1.564, 0.002, 0.000, 30.000, -0.000, 5.272', csv, re.MULTILINE))
-            self.assertTrue(re.search('^5.000, 5, swarm_2\\+\\+, 12.465, 165.990, -0.283, 1.564, 0.002, 0.000, 30.000, -0.000, 5.272', csv, re.MULTILINE))
-            self.assertTrue(re.search('^5.000, 6, swarm_2\\+\\+\\+, 12.420, 159.290, -0.269, 1.564, 0.002, 0.000, 30.000, -0.000, 5.272', csv, re.MULTILINE))
-            self.assertTrue(re.search('^5.000, 7, swarm_3, -5.902, 444.916, -0.788, 4.674, 6.282, 0.000, 30.000, 0.001, 5.272', csv, re.MULTILINE))
+            self.assertTrue(re.search('^5.000, 16, swarm_12, -0.075, 552.911, -0.843, 4.641, 0.000, 6.283, 30.000, 0.001, 0.038', csv, re.MULTILINE))
+            self.assertTrue(re.search('^5.000, 17, swarm_12\\+, 0.369, 558.895, -0.842, 4.639, 0.000, 6.283, 30.000, 0.001, 0.038', csv, re.MULTILINE))
+            self.assertTrue(re.search('^5.000, 18, swarm_12\\+\\+, 1.337, 571.558, -0.837, 4.635, 0.000, 0.000, 30.000, 0.001, 0.038', csv, re.MULTILINE))
+
             self.assertTrue(re.search('^10.000, 0, Ego, 12.312, 399.846, -0.719, 1.542, 0.002, 0.000, 10.000, -0.001, 2.971', csv, re.MULTILINE))
             self.assertTrue(re.search('^10.000, 1, swarm_0, 10.950, 342.984, -0.612, 1.551, 0.002, 0.000, 23.013, -0.000, 1.474', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 3, swarm_2, 14.366, 327.978, -0.583, 1.553, 0.002, 0.000, 30.000, -0.000, 0.303', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 4, swarm_2\\+, 14.263, 321.979, -0.571, 1.554, 0.002, 0.000, 30.000, -0.000, 0.303', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 5, swarm_2\\+\\+, 14.161, 315.979, -0.559, 1.554, 0.002, 0.000, 30.000, -0.000, 0.303', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 6, swarm_2\\+\\+\\+, 14.054, 309.280, -0.546, 1.555, 0.002, 0.000, 30.000, -0.000, 0.303', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 43, swarm_23, 3.667, 600.323, -0.827, 4.626, 0.000, 6.283, 30.000, 0.001, 0.619', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 16, swarm_12, -7.302, 403.098, -0.724, 4.683, 6.281, 0.000, 30.000, 0.001, 1.353', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 17, swarm_12\\+, -7.117, 409.095, -0.734, 4.682, 6.281, 0.000, 30.000, 0.001, 1.353', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 18, swarm_12\\+\\+, -6.702, 421.788, -0.754, 4.679, 6.282, 0.000, 30.000, 0.001, 1.353', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 24, swarm_17, -3.643, 495.154, -0.837, 4.660, 6.283, 0.000, 30.000, 0.001, 5.272', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 25, swarm_17\\+, -3.404, 499.598, -0.840, 4.658, 6.283, 0.000, 30.000, 0.001, 5.272', csv, re.MULTILINE))
+
+            self.assertTrue(re.search('^14.000, 0, Ego, 13.620, 439.825, -0.782, 1.534, 0.001, 0.000, 10.000, -0.001, 4.159', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 1, swarm_0, 12.668, 411.799, -0.739, 1.540, 0.002, 0.000, 13.090, -0.001, 3.372', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 16, swarm_12, -9.746, 283.125, -0.495, 4.699, 6.281, 0.000, 30.000, 0.000, 4.918', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 17, swarm_12\\+, -9.659, 289.124, -0.507, 4.698, 6.281, 0.000, 30.000, 0.000, 4.918', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 18, swarm_12\\+\\+, -9.465, 301.823, -0.531, 4.697, 6.281, 0.000, 30.000, 0.000, 4.918', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 24, swarm_17, -8.044, 375.240, -0.673, 4.688, 6.281, 0.000, 30.000, 0.000, 2.554', csv, re.MULTILINE))
+            self.assertTrue(re.search('^14.000, 25, swarm_17\\+, -7.933, 379.689, -0.681, 4.687, 6.281, 0.000, 30.000, 0.001, 2.554', csv, re.MULTILINE))
+
         elif platform == "linux" or platform == "linux2":
             self.assertTrue(re.search('^10.000, 0, Ego, 12.312, 399.846, -0.719, 1.542, 0.002, 0.000, 10.000, -0.001, 2.971', csv, re.MULTILINE))
-            self.assertTrue(re.search('^10.000, 30, swarm_23, 8.836, 176.039, -0.303, 1.563, 0.002, 0.000, 30.000, -0.000, 2.326', csv, re.MULTILINE))
-            self.assertTrue(re.search('^14.000, 43, swarm_35, 11.685, 646.668, -0.842, 4.614, 6.282, 0.000, 30.000, 0.001, 4.033', csv, re.MULTILINE))
-            self.assertTrue(re.search('^14.000, 44, swarm_35\\+, 12.290, 652.637, -0.848, 4.612, 6.282, 0.000, 30.000, 0.001, 4.033', csv, re.MULTILINE))
-            self.assertTrue(re.search('^14.000, 45, swarm_35\\+\\+, 13.591, 665.270, -0.867, 4.609, 6.281, 6.283, 30.000, 0.001, 4.033', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 1, swarm_0, 7.517, 349.998, -0.625, 1.550, 0.002, 0.000, 30.000, -0.000, 2.630', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 2, swarm_1, -10.155, 250.907, -0.437, 4.701, 6.281, 0.000, 30.000, 0.000, 2.630', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 3, swarm_1\\+, -10.082, 256.907, -0.448, 4.700, 6.281, 0.000, 30.000, 0.000, 2.630', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 4, swarm_1\\+\\+, -10.008, 262.906, -0.458, 4.700, 6.281, 0.000, 30.000, 0.000, 2.630', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 5, swarm_1\\+\\+\\+, -9.921, 269.606, -0.470, 4.699, 6.281, 0.000, 30.000, 0.000, 2.630', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 11, swarm_5, 10.641, 326.618, -0.580, 1.553, 0.002, 0.000, 26.802, -0.000, 3.042', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 12, swarm_5\\+, 10.539, 320.619, -0.568, 1.554, 0.002, 0.000, 30.000, -0.000, 3.955', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 13, swarm_5\\+\\+, 10.438, 314.620, -0.556, 1.554, 0.002, 0.000, 30.000, -0.000, 3.955', csv, re.MULTILINE))
+            self.assertTrue(re.search('^10.000, 14, swarm_5\\+\\+\\+, 10.331, 307.921, -0.543, 1.555, 0.002, 0.000, 30.000, -0.000, 3.955', csv, re.MULTILINE))
 
     def test_conflicting_domains(self):
         log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'EnvironmentSimulator/Unittest/xosc/conflicting-domains.xosc'), COMMON_ESMINI_ARGS)

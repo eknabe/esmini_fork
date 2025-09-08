@@ -194,6 +194,7 @@ void ControllerSumo::Step(double timeStep)
                     vehicle->role_     = static_cast<int>(Object::Role::CIVIL);
                     vehicle->category_ = Vehicle::Category::CAR;
                     vehicle->odometer_ = 0.0;
+                    vehicle->reset_    = true;
                     LOG_INFO("SUMO controller: Add vehicle {} to scenario", vehicle->name_);
                     entities_->addObject(vehicle, true);
 
@@ -302,6 +303,11 @@ void ControllerSumo::Step(double timeStep)
                                             0,
                                             roadmanager::Position::PosMode::Z_ABS | roadmanager::Position::PosMode::H_ABS |
                                                 roadmanager::Position::PosMode::P_ABS | roadmanager::Position::PosMode::R_REL);
+
+                if (obj->reset_ && !obj->TowVehicle() && obj->TrailerVehicle())
+                {
+                    static_cast<Vehicle*>(obj)->AlignTrailers();
+                }
 
                 obj->SetDirtyBits(Object::DirtyBit::LATERAL | Object::DirtyBit::LONGITUDINAL);
 
