@@ -2287,18 +2287,18 @@ class TestSuite(unittest.TestCase):
 
     def test_cut_in_sumo(self):
         if self.use_package("SUMO"):
-            log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/cut-in_sumo.xosc'), COMMON_ESMINI_ARGS + "--seed 0 --fixed_timestep 0.5 --log_level debug")
+            log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/cut-in_sumo.xosc'), COMMON_ESMINI_ARGS + "--seed 1 --fixed_timestep 0.5 --log_level debug")
 
             # Check some initialization steps
             self.assertTrue(re.search('Loading .*cut-in_sumo.xosc', log)  is not None)
 
             # Check some scenario events
-            self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle veh0 to scenario', log, re.MULTILINE)  is not None)
+            self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle car1 to scenario', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle Ego to SUMO', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle Target1 to SUMO', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.2.500.* SUMO controller: Add vehicle veh1 to scenario', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.5.000.* SUMO controller: Add vehicle veh2 to scenario', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.7.500.* SUMO controller: Add vehicle veh3 to scenario', log, re.MULTILINE)  is not None)
+            self.assertTrue(re.search('^.2.500.* SUMO controller: Add vehicle car2 to scenario', log, re.MULTILINE)  is not None)
+            self.assertTrue(re.search('^.5.000.* SUMO controller: Add vehicle car3 to scenario', log, re.MULTILINE)  is not None)
+            self.assertTrue(re.search('^.7.500.* SUMO controller: Add vehicle car4 to scenario', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.21.000.* first_lane_change standbyState -> startTransition -> runningState', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.40.500.* storyBoard runningState -> stopTransition -> completeState', log, re.MULTILINE)  is not None)
 
@@ -2306,16 +2306,16 @@ class TestSuite(unittest.TestCase):
             csv = generate_csv()
             self.assertTrue(re.search('^22.000, 0, Ego, 8.546, 131.996, -0.209, 1.565, 0.002, 0.000, 17.450, -0.000, 3.649', csv, re.MULTILINE))
             self.assertTrue(re.search('^22.000, 1, Target1, 5.557, 142.501, -0.233, 1.543, 0.002, 6.283, 25.000, -0.006, 2.229', csv, re.MULTILINE))
-            self.assertTrue(re.search('^22.000, 2, veh0, 14.811, 285.613, -0.500, 1.558, 0.000, 0.000, 14.716, 0.000, 0.830', csv, re.MULTILINE))
-            self.assertTrue(re.search('^22.000, 3, veh1, 14.089, 224.628, -0.390, 1.561, 0.000, 0.000, 13.022, 0.000, 2.099', csv, re.MULTILINE))
-            self.assertTrue(re.search('^22.000, 4, veh2, 13.881, 202.965, -0.350, 1.563, 0.000, 0.000, 13.371, -0.000, 2.835', csv, re.MULTILINE))
-            self.assertTrue(re.search('^22.000, 5, veh3, 13.681, 178.218, -0.310, 1.563, 0.000, 0.000, 14.550, -0.000, 1.697', csv, re.MULTILINE))
+            self.assertTrue(re.search('^22.000, 2, car1, 14.811, 285.613, -0.500, 1.558, 0.000, 0.000, 14.716, 0.000, 0.830', csv, re.MULTILINE))
+            self.assertTrue(re.search('^22.000, 8, car2, 14.089, 224.628, -0.390, 1.561, 0.000, 0.000, 13.022, 0.000, 2.099', csv, re.MULTILINE))
+            self.assertTrue(re.search('^22.000, 9, car3, 13.881, 202.965, -0.350, 1.563, 0.000, 0.000, 13.371, -0.000, 2.835', csv, re.MULTILINE))
+            self.assertTrue(re.search('^22.000, 10, car4, 13.681, 178.218, -0.310, 1.563, 0.000, 0.000, 14.550, -0.000, 1.697', csv, re.MULTILINE))
             self.assertTrue(re.search('^40.500, 0, Ego, 16.375, 500.596, -0.841, 1.517, 0.000, 0.000, 20.000, -0.001, 1.574', csv, re.MULTILINE))
             self.assertTrue(re.search('^40.500, 1, Target1, 23.806, 604.508, -0.826, 1.483, 6.283, 0.000, 25.000, -0.001, 4.189', csv, re.MULTILINE))
-            self.assertTrue(re.search('^40.500, 2, veh0, 23.682, 557.477, -0.840, 1.495, 0.000, 0.000, 14.714, -0.002, 5.323', csv, re.MULTILINE))
-            self.assertTrue(re.search('^40.500, 3, veh1, 19.484, 465.357, -0.810, 1.527, 0.000, 0.000, 13.021, -0.001, 5.723', csv, re.MULTILINE))
-            self.assertTrue(re.search('^40.500, 4, veh2, 16.387, 445.007, -0.790, 1.536, 0.000, 0.000, 13.022, 0.003, 3.107', csv, re.MULTILINE))
-            self.assertTrue(re.search('^40.500, 5, veh3, 12.193, 436.026, -0.778, 1.537, 6.278, 0.000, 15.025, -0.000, 2.998', csv, re.MULTILINE))
+            self.assertTrue(re.search('^40.500, 2, car1, 23.709, 557.472, -0.840, 1.495, 0.000, 0.000, 14.715, -0.002, 5.295', csv, re.MULTILINE))
+            self.assertTrue(re.search('^40.500, 8, car2, 19.484, 465.357, -0.810, 1.527, 0.000, 0.000, 13.020, -0.001, 5.742', csv, re.MULTILINE))
+            self.assertTrue(re.search('^40.500, 9, car3, 16.393, 445.007, -0.790, 1.536, 0.000, 0.000, 13.034, 0.003, 3.139', csv, re.MULTILINE))
+            self.assertTrue(re.search('^40.500, 10, car4, 12.200, 436.009, -0.778, 1.537, 6.278, 0.000, 15.032, -0.000, 2.951', csv, re.MULTILINE))
         else:
             print("Skipping due to lacking SUMO support ", end='', file=sys.stderr)
 
