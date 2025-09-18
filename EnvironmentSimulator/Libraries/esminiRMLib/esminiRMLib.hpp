@@ -39,6 +39,7 @@ typedef struct
     float h;
     float p;
     float r;
+    int   newValue;
     float hRelative;
     id_t  roadId;
     id_t  junctionId;  // -1 if not in a junction
