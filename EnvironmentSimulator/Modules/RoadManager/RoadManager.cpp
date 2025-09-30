@@ -4461,11 +4461,30 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     double      z_offset = atof(signal.attribute("zOffset").value());
                     std::string country  = ToLower(signal.attribute("country").value());
 
+                    int country_revision = 2013;  // default
+
+                    if (signal.attribute("countryRevision").empty())
+                    {
+                        country_revision = signal.attribute("countryRevision").as_uint();
+                    }
+
                     // Load the country file for types
                     if (!country.empty() && (!country_file_loaded || current_country != country))
                     {
                         current_country     = country;
                         country_file_loaded = LoadSignalsByCountry(country);
+                    }
+
+                    // if special country OpenDRIVE, check for various supported traffic light types
+                    if (country == "opendrive")
+                    {
+                        std::string signal_type = signal.attribute("type").value();
+
+                        if ((country_revision <= 2013 && signal_type == "1.000.001") || signal_type == "1000001")
+                        {
+                            // traffic light
+                            LOG_INFO("traffic light found!");
+                        }
                     }
 
                     std::string type;
