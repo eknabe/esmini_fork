@@ -13,6 +13,7 @@
 #ifndef ROADGEOM_HPP_
 #define ROADGEOM_HPP_
 
+#include <vector>
 #include <osg/PositionAttitudeTransform>
 #include <osg/Texture2D>
 #include <osg/Group>
@@ -45,6 +46,14 @@ namespace roadgeom
 
     uint64_t  GenerateMaterialKey(double r, double g, double b, double a, uint8_t t, uint8_t f);
     osg::Vec4 ODR2OSGColor(roadmanager::RoadMarkColor color);
+
+    class TrafficLightRedYellowGreen
+    {
+    public:
+        TrafficLightRedYellowGreen() = default;
+        void SetNode(osg::Group* node);
+        osg::Switch* switches_[3];
+    };
 
     class RoadGeom
     {
@@ -111,6 +120,7 @@ namespace roadgeom
         roadmanager::OpenDrive*                                        odrManager_         = nullptr;
         bool                                                           optimize_           = true;
         osg::Node*                                                     environment_        = nullptr;
+        std::unordered_map<int, TrafficLightRedYellowGreen> traffic_light_red_yellow_green_;
     };
 
 }  // namespace roadgeom
