@@ -4374,6 +4374,42 @@ TEST(LaneOffset, TestGetClosestLaneIdxWithLaneOffsetAndLocKOnLane)
     EXPECT_EQ(pos.GetLaneId(), -2);
 }
 
+TEST(XMLParsing, TestReadAttribute)
+{
+    pugi::xml_document doc;
+    doc.load_string("<data a='some_string' b='3' c='4.75' d='true'/>");
+    pugi::xml_node data_node = doc.child("data");
+
+    EXPECT_EQ(roadmanager::ReadAttributeAsString(data_node, "a", "another_string", false), "some_string");
+    EXPECT_EQ(roadmanager::ReadAttributeAsString(data_node, "a", "another_string", true), "some_string");
+    EXPECT_EQ(roadmanager::ReadAttributeAsString(data_node, "a2", "another_string", false), "another_string");
+    EXPECT_EQ(roadmanager::ReadAttributeAsString(data_node, "a2", "another_string", true), "another_string");
+
+    EXPECT_EQ(roadmanager::ReadAttributeAsInt(data_node, "b", 4, false), 3);
+    EXPECT_EQ(roadmanager::ReadAttributeAsInt(data_node, "b", 4, true), 3);
+    EXPECT_EQ(roadmanager::ReadAttributeAsInt(data_node, "b2", 4, false), 4);
+    EXPECT_EQ(roadmanager::ReadAttributeAsInt(data_node, "b2", 4, true), 4);
+
+    EXPECT_EQ(roadmanager::ReadAttributeAsUnsignedInt(data_node, "b", 4, false), 3);
+    EXPECT_EQ(roadmanager::ReadAttributeAsUnsignedInt(data_node, "b", 4, true), 3);
+    EXPECT_EQ(roadmanager::ReadAttributeAsUnsignedInt(data_node, "b2", 4, false), 4);
+    EXPECT_EQ(roadmanager::ReadAttributeAsUnsignedInt(data_node, "b2", 4, true), 4);
+
+    EXPECT_DOUBLE_EQ(roadmanager::ReadAttributeAsDouble(data_node, "c", 0.1, false), 4.75);
+    EXPECT_DOUBLE_EQ(roadmanager::ReadAttributeAsDouble(data_node, "c", 0.1, true), 4.75);
+    EXPECT_DOUBLE_EQ(roadmanager::ReadAttributeAsDouble(data_node, "c2", 0.1, false), 0.1);
+    EXPECT_DOUBLE_EQ(roadmanager::ReadAttributeAsDouble(data_node, "c2", 0.1, true), 0.1);
+
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d", false, false), true);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d", false, true), true);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d", true, false), true);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d", true, true), true);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d2", false, false), false);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d2", false, true), false);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d2", true, false), true);
+    EXPECT_EQ(roadmanager::ReadAttributeAsBool(data_node, "d2", true, true), true);
+}
+
 int main(int argc, char **argv)
 {
     // testing::GTEST_FLAG(filter) = "*RoadWidthAllLanes*";

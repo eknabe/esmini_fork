@@ -28,6 +28,12 @@
 
 namespace roadmanager
 {
+    std::string  ReadAttributeAsString(const pugi::xml_node &node, const char *attrib_name, const std::string &default_value, bool required);
+    double       ReadAttributeAsDouble(const pugi::xml_node &node, const char *attrib_name, double default_value, bool required);
+    int          ReadAttributeAsInt(const pugi::xml_node &node, const char *attrib_name, int default_value, bool required);
+    unsigned int ReadAttributeAsUnsignedInt(const pugi::xml_node &node, const char *attrib_name, unsigned int default_value, bool required);
+    bool         ReadAttributeAsBool(const pugi::xml_node &node, const char *attrib_name, bool default_value, bool required);
+
     id_t        GetNewGlobalLaneId();
     id_t        GetNewGlobalLaneBoundaryId();
     const char *ReadUserData(pugi::xml_node node, const std::string &code, const std::string &default_value = "");
@@ -1691,7 +1697,15 @@ namespace roadmanager
     class OutlineCornerRoad : public OutlineCorner
     {
     public:
-        OutlineCornerRoad(id_t roadId, double s, double t, double dz, double height, double center_s, double center_t, double center_heading);
+        OutlineCornerRoad(id_t   roadId,
+                          id_t   cornerId,
+                          double s,
+                          double t,
+                          double dz,
+                          double height,
+                          double center_s,
+                          double center_t,
+                          double center_heading);
         void   GetPos(double &x, double &y, double &z) override;
         void   GetPosLocal(double &x, double &y, double &z) override;
         double GetHeight()
@@ -1699,14 +1713,14 @@ namespace roadmanager
             return height_;
         }
 
-        id_t   roadId_;
+        id_t   roadId_, cornerId_;
         double s_, t_, dz_, height_, center_s_, center_t_, center_heading_;
     };
 
     class OutlineCornerLocal : public OutlineCorner
     {
     public:
-        OutlineCornerLocal(id_t roadId, double s, double t, double u, double v, double zLocal, double height, double heading);
+        OutlineCornerLocal(id_t roadId, id_t cornerId, double s, double t, double u, double v, double zLocal, double height, double heading);
         void   GetPos(double &x, double &y, double &z) override;
         void   GetPosLocal(double &x, double &y, double &z) override;
         double GetHeight()
@@ -1714,7 +1728,7 @@ namespace roadmanager
             return height_;
         }
 
-        id_t   roadId_;
+        id_t   roadId_, cornerId_;
         double s_, t_, u_, v_, zLocal_, height_, heading_;
     };
 
@@ -1745,12 +1759,14 @@ namespace roadmanager
         bool                         roof_     = false;
         std::vector<OutlineCorner *> corner_;
         ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
+        bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)
 
         Outline(id_t id, FillType fillType, bool closed)
             : id_(id),
               fillType_(fillType),
               closed_(closed),
-              roof_(closed)  // default put roof on closed outlines
+              roof_(closed),        // default put roof on closed outlines
+              bounding_box_(false)  // default consider as explicit outline
         {
         }
 
@@ -1772,6 +1788,14 @@ namespace roadmanager
         bool GetCountourType() const
         {
             return contourType_;
+        }
+        void SetBoundingBoxFlag(bool bounding_box)
+        {
+            bounding_box_ = bounding_box;
+        }
+        bool IsBoundingBox() const
+        {
+            return bounding_box_;
         }
     };
 
