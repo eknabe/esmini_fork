@@ -1032,6 +1032,7 @@ namespace roadgeom
 
         roadmanager::Position pos;
 
+        bool explicit_outline_created = false;
         for (unsigned int r = 0; r < od->GetNumOfRoads(); r++)
         {
             roadmanager::Road* road = od->GetRoadByIdx(r);
@@ -1131,8 +1132,11 @@ namespace roadgeom
                     color[c] = object->GetColor()[c];
                 }
 
-                if (object->GetNumberOfOutlines() > 0 &&
-                    object->GetNumberOfRepeats() == 0)  // if repeats are defined, wait and see if outline should replace failed 3D model or not
+                if (object->GetNumberOfOutlines() == 0)
+                {
+                    LOG_ERROR("No outline defined for object {} with id {}", object->GetName(), object->GetId());
+                }
+                else
                 {
                     for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                     {
@@ -1144,34 +1148,41 @@ namespace roadgeom
                             objGroup->addChild(olgroup);
                         }
                     }
-                    LOG_INFO("Created outline geometry for object {}.", object->GetName());
-                    LOG_DEBUG("  if it looks strange, e.g.faces too dark or light color, ");
-                    LOG_DEBUG("  check that corners are defined counter-clockwise (as OpenGL default).");
-                }
-                else
-                {
-                    double orientation = object->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? M_PI : 0.0;
 
-                    // absolute path or relative to current directory
-                    std::string filename = object->GetName();
-
-                    // Assume name is representing a 3D model filename
-                    if (!filename.empty())
+                    if (object->GetNumberOfOutlines() == 1 && object->GetOutline(0)->IsBoundingBox())
                     {
-                        if (FileNameExtOf(filename) == "")
-                        {
-                            filename += ".osgb";  // add missing extension
-                        }
-
-                        tx = LoadRoadFeature(road, filename, exe_path);
-
-                        if (tx == nullptr)
-                        {
-                            LOG_WARN("Failed to load road object model file: {} ({}). Creating a bounding box as stand in.",
-                                     filename,
-                                     object->GetName());
-                        }
+                        LOG_DEBUG("Created bounding box geometry for object {}", object->GetName());
                     }
+                    else
+                    {
+                        explicit_outline_created = true;
+                        LOG_DEBUG("Created {} outline geometries for object {}", object->GetNumberOfOutlines(), object->GetName());
+                    }
+                }
+
+                // absolute path or relative to current directory
+                std::string filename = object->GetName();
+
+                // Assume name is representing a 3D model filename
+                if (!filename.empty())
+                {
+                    if (FileNameExtOf(filename) == "")
+                    {
+                        filename += ".osgb";  // add missing extension
+                    }
+
+                    tx = LoadRoadFeature(road, filename, exe_path);
+
+                    if (tx == nullptr)
+                    {
+                        LOG_DEBUG("Failed attempt loading road object model file: {} ({}). Creating a bounding box as stand in.",
+                                  filename,
+                                  object->GetName());
+                    }
+                }
+
+#if 0
+                double orientation = object->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? M_PI : 0.0;
 
                     roadmanager::Repeat*         rep     = object->GetRepeat();
                     int                          nCopies = 0;
@@ -1501,7 +1512,15 @@ namespace roadgeom
                         LOG_WARN("No tx");
                     }
                 }
+#endif
             }
+        }
+
+        if (explicit_outline_created)
+        {
+            LOG_DEBUG("Note: Visual model for road object outlines have been created");
+            LOG_DEBUG("  if looking strange, e.g.faces too dark or light color, ");
+            LOG_DEBUG("  check that corners are defined counter-clockwise (as OpenGL default).");
         }
 
         if (optimize_)

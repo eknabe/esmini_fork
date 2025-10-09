@@ -405,6 +405,85 @@ std::string Signal::GetCombinedTypeSubtypeValueStr(std::string type, std::string
     return str;
 }
 
+std::string roadmanager::ReadAttributeAsString(const pugi::xml_node& node, const char* attrib_name, const std::string& default_value, bool required)
+{
+    pugi::xml_attribute attrib = node.attribute(attrib_name);
+
+    if (attrib)
+    {
+        return attrib.as_string();
+    }
+    else if (required)
+    {
+        LOG_WARN("Required attribute '{}/{}' missing, applying default: {}", node.name(), attrib_name, default_value);
+    }
+
+    return default_value;
+}
+
+double roadmanager::ReadAttributeAsDouble(const pugi::xml_node& node, const char* attrib_name, double default_value, bool required)
+{
+    pugi::xml_attribute attrib = node.attribute(attrib_name);
+
+    if (attrib)
+    {
+        return attrib.as_double();
+    }
+    else if (required)
+    {
+        LOG_WARN("Required attribute '{}/{}' missing, applying default: {}", node.name(), attrib_name, default_value);
+    }
+
+    return default_value;
+}
+
+int roadmanager::ReadAttributeAsInt(const pugi::xml_node& node, const char* attrib_name, int default_value, bool required)
+{
+    pugi::xml_attribute attrib = node.attribute(attrib_name);
+
+    if (attrib)
+    {
+        return attrib.as_int();
+    }
+    else if (required)
+    {
+        LOG_WARN("Required attribute '{}/{}' missing, applying default: {}", node.name(), attrib_name, default_value);
+    }
+
+    return default_value;
+}
+
+unsigned int roadmanager::ReadAttributeAsUnsignedInt(const pugi::xml_node& node, const char* attrib_name, unsigned int default_value, bool required)
+{
+    pugi::xml_attribute attrib = node.attribute(attrib_name);
+
+    if (attrib)
+    {
+        return attrib.as_uint();
+    }
+    else if (required)
+    {
+        LOG_WARN("Required attribute '{}/{}' missing, applying default: {}", node.name(), attrib_name, default_value);
+    }
+
+    return default_value;
+}
+
+bool roadmanager::ReadAttributeAsBool(const pugi::xml_node& node, const char* attrib_name, bool default_value, bool required)
+{
+    pugi::xml_attribute attrib = node.attribute(attrib_name);
+    if (attrib)
+    {
+        return attrib.as_bool();
+    }
+    else if (required)
+    {
+        LOG_WARN("Required attribute '{}/{}' missing, applying default: {}", node.name(), attrib_name, default_value);
+    }
+
+    return default_value;
+}
+
 id_t roadmanager::GetNewGlobalLaneId()
 {
     id_t returnvalue = g_Lane_id;
@@ -2530,6 +2609,7 @@ RMObject* Road::GetRoadObject(idx_t idx) const
 }
 
 OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
+                                     id_t   cornerId,
                                      double s,
                                      double t,
                                      double dz,
@@ -2538,6 +2618,7 @@ OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
                                      double center_t,
                                      double center_heading)
     : roadId_(roadId),
+      cornerId_(cornerId),
       s_(s),
       t_(t),
       dz_(dz),
@@ -2569,8 +2650,17 @@ void OutlineCornerRoad::GetPosLocal(double& x, double& y, double& z)
     z = pref.GetZ() + dz_;
 }
 
-OutlineCornerLocal::OutlineCornerLocal(id_t roadId, double s, double t, double u, double v, double zLocal, double height, double heading)
+OutlineCornerLocal::OutlineCornerLocal(id_t   roadId,
+                                       id_t   cornerId,
+                                       double s,
+                                       double t,
+                                       double u,
+                                       double v,
+                                       double zLocal,
+                                       double height,
+                                       double heading)
     : roadId_(roadId),
+      cornerId_(cornerId),
       s_(s),
       t_(t),
       u_(u),
@@ -4569,45 +4659,39 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         {
             for (pugi::xml_node object = objects.child("object"); object; object = object.next_sibling("object"))
             {
-                RMObject* obj = nullptr;
-                Position  pos;
+                // read given description of the original object
 
-                double      s    = atof(object.attribute("s").value());
-                double      t    = atof(object.attribute("t").value());
-                id_t        ids  = object.attribute("id").as_uint();
-                std::string name = object.attribute("name").value();
+                double s = ReadAttributeAsDouble(object, "s", 0.0, true);
+                double t = ReadAttributeAsDouble(object, "t", 0.0, true);
 
-                // orientation
-                RMObject::Orientation orientation = RMObject::Orientation::NONE;
-                if (!object.attribute("orientation").empty() && strcmp(object.attribute("orientation").value(), ""))
+                Position pos;
+                pos.SetTrackPos(r->GetId(), s, t);
+
+                id_t        ids  = ReadAttributeAsUnsignedInt(object, "id", 0, true);
+                std::string name = ReadAttributeAsString(object, "name", "", false);
+
+                RMObject::Orientation orientation     = RMObject::Orientation::NONE;
+                std::string           orientation_str = ReadAttributeAsString(object, "orientation", "none", false);
+                if (orientation_str == "+")
                 {
-                    if (!strcmp(object.attribute("orientation").value(), "none"))
-                    {
-                        orientation = RMObject::Orientation::NONE;
-                    }
-                    else if (!strcmp(object.attribute("orientation").value(), "+"))
-                    {
-                        orientation = RMObject::Orientation::POSITIVE;
-                    }
-                    else if (!strcmp(object.attribute("orientation").value(), "-"))
-                    {
-                        orientation = RMObject::Orientation::NEGATIVE;
-                    }
-                    else
-                    {
-                        LOG_WARN("unknown road object orientation: {} (road ids={})", object.attribute("orientation").value(), r->GetId());
-                    }
+                    orientation = RMObject::Orientation::POSITIVE;
                 }
-                std::string          type_str = object.attribute("type").value();
+                else if (orientation_str == "-")
+                {
+                    orientation = RMObject::Orientation::NEGATIVE;
+                }
+
+                std::string          type_str = ReadAttributeAsString(object, "type", "", false);
                 RMObject::ObjectType type     = RMObject::Str2Type(type_str);
 
-                double length = object.attribute("length").as_double();
-                double width  = object.attribute("width").as_double();
-                double radius = object.attribute("radius").as_double();
+                double length = ReadAttributeAsDouble(object, "length", 0.0, false);
+                double width  = ReadAttributeAsDouble(object, "width", 0.0, false);
+                double height = ReadAttributeAsDouble(object, "height", 0.0, false);
+                double radius = ReadAttributeAsDouble(object, "radius", 0.0, false);
 
-                if (!object.attribute("radius").empty())
+                if (object.attribute("radius"))
                 {
-                    if (!object.attribute("length").empty() || !object.attribute("width").empty())
+                    if (object.attribute("length") || object.attribute("width"))
                     {
                         LOG_WARN("Found object {} radius {:.2f}. Circular objects not supported yet. Using length and width attributes instead",
                                  name,
@@ -4625,64 +4709,167 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     }
                 }
 
-                double z_offset = object.attribute("zOffset").as_double();
-                double height   = object.attribute("height").as_double();
-                double heading  = object.attribute("hdg").as_double();
-                double pitch    = object.attribute("pitch").as_double();
-                double roll     = object.attribute("roll").as_double();
+                double z_offset = ReadAttributeAsDouble(object, "zOffset", 0.0, true);
+                double heading  = ReadAttributeAsDouble(object, "hdg", 0.0, false);
+                double pitch    = ReadAttributeAsDouble(object, "pitch", 0.0, false);
+                double roll     = ReadAttributeAsDouble(object, "roll", 0.0, false);
 
-                // Read any repeat elements
+                pugi::xml_node repeat_node = object.child("repeat");
+                double         s_parameter = 0.0;  // used for incrementing repeat individuals
+                bool           done        = false;
 
-                std::vector<Repeat*> Repeats;
-                for (pugi::xml_node repeat_node = object.child("repeat"); repeat_node; repeat_node = repeat_node.next_sibling("repeat"))
+                while (!done)
                 {
-                    std::string rattr;
-                    double      rs = (rattr = ReadAttribute(repeat_node, "s", true)) == "" ? 0.0 : std::stod(rattr);
-                    if (rs > r->GetLength() - SMALL_NUMBER)
+                    // apply parameters from any repeat element
+                    if (repeat_node)
                     {
-                        LOG_ERROR("Repeat s value {:.2f} beyond road length {:.2f}, ignoring", rs, r->GetLength());
-                        continue;
+                        double rs            = ReadAttributeAsDouble(repeat_node, "s", s, true);
+                        double rlength       = ReadAttributeAsDouble(repeat_node, "length", length, true);
+                        double rdistance     = ReadAttributeAsDouble(repeat_node, "distance", 0.0, true);
+                        double rtStart       = ReadAttributeAsDouble(repeat_node, "tStart", t, true);
+                        double rtEnd         = ReadAttributeAsDouble(repeat_node, "tEnd", t, true);
+                        double rheightStart  = ReadAttributeAsDouble(repeat_node, "heightStart", height, true);
+                        double rheightEnd    = ReadAttributeAsDouble(repeat_node, "heightEnd", height, true);
+                        double rzOffsetStart = ReadAttributeAsDouble(repeat_node, "zOffsetStart", z_offset, true);
+                        double rzOffsetEnd   = ReadAttributeAsDouble(repeat_node, "zOffsetEnd", z_offset, true);
+
+                        double rwidthStart  = ReadAttributeAsDouble(repeat_node, "widthStart", width, false);
+                        double rwidthEnd    = ReadAttributeAsDouble(repeat_node, "widthEnd", width, false);
+                        double rlengthStart = ReadAttributeAsDouble(repeat_node, "lengthStart", length, false);
+                        double rlengthEnd   = ReadAttributeAsDouble(repeat_node, "lengthEnd", length, false);
+                        double rradiusStart = ReadAttributeAsDouble(repeat_node, "radiusStart", radius, false);
+                        double rradiusEnd   = ReadAttributeAsDouble(repeat_node, "radiusEnd", radius, false);
+
+                        if (s_parameter < rlength - SMALL_NUMBER)
+                        {
+                            // if distance is set, use it, otherwise use length of object for delta s
+                            double w = (rlength > SMALL_NUMBER) ? s_parameter / rlength : 0.0;
+
+                            double s_current = rs + s_parameter;
+                            double t_current = rtStart + w * (rtEnd - rtStart);
+
+                            // set roadposition to calculate corresponding world coordinates
+                            pos.SetTrackPosMode(r->GetId(),
+                                                s_current,
+                                                rtStart + w * (rtEnd - rtStart),
+                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
+                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                            s        = s_current;
+                            t        = t_current;
+                            z_offset = rzOffsetStart + w * (rzOffsetEnd - rzOffsetStart);
+                            length   = rlengthStart + w * (rlengthEnd - rlengthStart);
+                            height   = rheightStart + w * (rheightEnd - rheightStart);
+                            width    = rwidthStart + w * (rwidthEnd - rwidthStart);
+                            radius   = rradiusStart + w * (rradiusEnd - rradiusStart);
+
+                            s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
+                        }
+
+                        if (repeat_node && s_parameter > rlength - SMALL_NUMBER)
+                        {
+                            // go to any next repeat element
+                            repeat_node = repeat_node.next_sibling("repeat");
+                            if (repeat_node.empty())
+                            {
+                                done = true;
+                            }
+                            else
+                            {
+                                // reset s_parameter for next repeat element
+                                s_parameter = 0.0;
+                            }
+                        }
                     }
-                    double rlength       = (rattr = ReadAttribute(repeat_node, "length", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rdistance     = (rattr = ReadAttribute(repeat_node, "distance", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rtStart       = (rattr = ReadAttribute(repeat_node, "tStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rtEnd         = (rattr = ReadAttribute(repeat_node, "tEnd", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rheightStart  = (rattr = ReadAttribute(repeat_node, "heightStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rheightEnd    = (rattr = ReadAttribute(repeat_node, "heightEnd", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rzOffsetStart = (rattr = ReadAttribute(repeat_node, "zOffsetStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rzOffsetEnd   = (rattr = ReadAttribute(repeat_node, "zOffsetEnd", true)) == "" ? 0.0 : std::stod(rattr);
-
-                    double rwidthStart  = (rattr = ReadAttribute(repeat_node, "widthStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rwidthEnd    = (rattr = ReadAttribute(repeat_node, "widthEnd", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rlengthStart = (rattr = ReadAttribute(repeat_node, "lengthStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rlengthEnd   = (rattr = ReadAttribute(repeat_node, "lengthEnd", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rradiusStart = (rattr = ReadAttribute(repeat_node, "radiusStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rradiusEnd   = (rattr = ReadAttribute(repeat_node, "radiusEnd", false)) == "" ? 0.0 : std::stod(rattr);
-
-                    if (obj == nullptr)
+                    else
                     {
-                        // create object with position of main element
-                        pos.SetTrackPos(r->GetId(), s, t);
-
-                        obj = new RMObject(s,
-                                           t,
-                                           ids,
-                                           name,
-                                           orientation,
-                                           z_offset,
-                                           type,
-                                           length,
-                                           height,
-                                           width,
-                                           heading,
-                                           pitch,
-                                           roll,
-                                           pos.GetX(),
-                                           pos.GetY(),
-                                           pos.GetZ(),
-                                           pos.GetHRoad());
+                        done = true;  // no repeat, add only one instance
                     }
 
+                    // create the road object
+                    RMObject* obj = new RMObject(s,
+                                                 t,
+                                                 ids,
+                                                 name,
+                                                 orientation,
+                                                 z_offset,
+                                                 type,
+                                                 length,
+                                                 height,
+                                                 width,
+                                                 heading,
+                                                 pitch,
+                                                 roll,
+                                                 pos.GetX(),
+                                                 pos.GetY(),
+                                                 pos.GetZ(),
+                                                 pos.GetHRoad());
+
+                    // add any outlines
+                    pugi::xml_node outlines_node = object.child("outlines");
+                    if (!outlines_node)
+                    {
+                        outlines_node = object;  // allow outline elements directly under object
+                    }
+
+                    if (outlines_node && outlines_node.child("outline"))
+                    {
+                        for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
+                        {
+                            id_t         id             = ReadAttributeAsUnsignedInt(outline_node, "id", 0, false);
+                            bool         closed         = ReadAttributeAsBool(outline_node, "closed", false, false);
+                            Outline*     outline        = new Outline(id, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
+                            unsigned int corner_counter = 0;
+                            for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
+                            {
+                                OutlineCorner* corner  = 0;
+                                id_t           idc     = ReadAttributeAsUnsignedInt(corner_node, "id", corner_counter, false);
+                                double         heightc = ReadAttributeAsDouble(corner_node, "height", 0.0, true);
+
+                                if (!strcmp(corner_node.name(), "cornerRoad"))
+                                {
+                                    double sc = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                    double tc = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                    double dz = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+
+                                    corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), idc, sc, tc, dz, heightc, s, t, heading));
+                                }
+                                else if (!strcmp(corner_node.name(), "cornerLocal"))
+                                {
+                                    double u      = ReadAttributeAsDouble(corner_node, "u", 0.0, true);
+                                    double v      = ReadAttributeAsDouble(corner_node, "v", 0.0, true);
+                                    double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
+
+                                    corner = static_cast<OutlineCorner*>(
+                                        new OutlineCornerLocal(r->GetId(), idc, obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
+                                }
+                                outline->AddCorner(corner);
+                                corner_counter++;
+                            }
+                            obj->AddOutline(outline);
+                        }
+                    }
+                    else
+                    {
+                        // create outline for the generic bounding box
+                        Outline* outline = new Outline(ids, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                        double   hl      = length / 2.0;
+                        double   hw      = width / 2.0;
+
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 0, s, t, -hl, -hw, 0.0, height, heading));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 1, s, t, hl, -hw, 0.0, height, heading));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 2, s, t, hl, hw, 0.0, height, heading));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 3, s, t, -hl, hw, 0.0, height, heading));
+
+                        outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
+                        obj->AddOutline(outline);
+                    }
+
+                    // finally add the object to the road
+                    r->AddObject(obj);
+                }
+
+#if 0  // TODO: Special case for continuous outlines
                     if (rdistance < SMALL_NUMBER)
                     {
                         Outline* outline = CreateContinuousRepeatOutline(r,
@@ -4703,8 +4890,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                                          rzOffsetEnd);
                         obj->AddOutline(outline);
                     }
+#endif
 
-                    // Always add the repeat object, even if treated as outline - in case 3D model should be used in visualization
+#if 0  //  Refactor: Resolve individual objects right now instead of old approach of register repeat info
+       // Add the repeat objects, even if treated as outline - in case 3D model should be used in visualization
                     Repeat* repeat = new Repeat(rs, rlength, rdistance, rtStart, rtEnd, rheightStart, rheightEnd, rzOffsetStart, rzOffsetEnd);
                     Repeats.push_back(repeat);
 
@@ -4720,79 +4909,18 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         printf("Attribute object/repeat/radiusStart not supported yet\n");
                     if (fabs(rradiusEnd) > SMALL_NUMBER)
                         printf("Attribute object/repeat/radiusEnd not supported yet\n");
-                }
 
-                if (obj == nullptr)
-                {
-                    // create object with position of the object main element
-                    pos.SetTrackPos(r->GetId(), s, t);
-
-                    obj = new RMObject(s,
-                                       t,
-                                       ids,
-                                       name,
-                                       orientation,
-                                       z_offset,
-                                       type,
-                                       length,
-                                       height,
-                                       width,
-                                       heading,
-                                       pitch,
-                                       roll,
-                                       pos.GetX(),
-                                       pos.GetY(),
-                                       pos.GetZ(),
-                                       pos.GetHRoad());
-                }
-
-                if (Repeats.size() > 0)
-                {
-                    for (Repeat* rp : Repeats)
+                    if (Repeats.size() > 0)
                     {
-                        obj->AddRepeat(rp);
-                    }
-                    obj->SetRepeat(Repeats[0]);
-                }
-
-                pugi::xml_node outlines_node = object.child("outlines");
-                if (outlines_node != NULL)
-                {
-                    for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
-                    {
-                        id_t     id      = outline_node.attribute("id").as_uint();
-                        bool     closed  = !strcmp(outline_node.attribute("closed").value(), "true") ? true : false;
-                        Outline* outline = new Outline(id, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
-
-                        for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
+                        for (Repeat* rp : Repeats)
                         {
-                            OutlineCorner* corner = 0;
-
-                            if (!strcmp(corner_node.name(), "cornerRoad"))
-                            {
-                                double sc      = atof(corner_node.attribute("s").value());
-                                double tc      = atof(corner_node.attribute("t").value());
-                                double dz      = atof(corner_node.attribute("dz").value());
-                                double heightc = atof(corner_node.attribute("height").value());
-
-                                corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), sc, tc, dz, heightc, s, t, heading));
-                            }
-                            else if (!strcmp(corner_node.name(), "cornerLocal"))
-                            {
-                                double u       = atof(corner_node.attribute("u").value());
-                                double v       = atof(corner_node.attribute("v").value());
-                                double zLocal  = atof(corner_node.attribute("z").value());
-                                double heightc = atof(corner_node.attribute("height").value());
-
-                                corner = static_cast<OutlineCorner*>(
-                                    new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
-                            }
-                            outline->AddCorner(corner);
+                            obj->AddRepeat(rp);
                         }
-                        obj->AddOutline(outline);
+                        obj->SetRepeat(Repeats[0]);
                     }
-                }
+#endif
 
+#if 0
                 pugi::xml_node parking_space_node = object.child("parkingSpace");
                 if (!parking_space_node.empty())
                 {
@@ -4858,6 +4986,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 {
                     LOG_ERROR("RMObject: Major error");
                 }
+#endif
             }
 
             for (pugi::xml_node tunnel_node = objects.child("tunnel"); tunnel_node; tunnel_node = tunnel_node.next_sibling("tunnel"))
@@ -6399,6 +6528,7 @@ Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
                 double         w_local = w_start + factor * (w_end - w_start);
                 OutlineCorner* corner  = static_cast<OutlineCorner*>(
                     new OutlineCornerRoad(r->GetId(),
+                                          i * n_segments + j,
                                           rs + factor * rlength,
                                           rtStart + factor * (rtEnd - rtStart) + (i == 0 ? -w_local / 2.0 : w_local / 2.0),
                                           rzOffsetStart + factor * (rzOffsetEnd - rzOffsetStart),
@@ -7869,8 +7999,15 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
 
                                     tpoint_struct& p = tpoint[i][index];
 
-                                    OutlineCorner* corner = static_cast<OutlineCorner*>(
-                                        new OutlineCornerRoad(road->GetId(), p.s, p.t + t_offset, 0.0, TUNNEL_HEIGHT, 0.0, 0.0, 0.0));
+                                    OutlineCorner* corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(road->GetId(),
+                                                                                                              j * steps + step,
+                                                                                                              p.s,
+                                                                                                              p.t + t_offset,
+                                                                                                              0.0,
+                                                                                                              TUNNEL_HEIGHT,
+                                                                                                              0.0,
+                                                                                                              0.0,
+                                                                                                              0.0));
                                     outline->AddCorner(corner);
                                 }
                             }
@@ -7914,16 +8051,17 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                         {
                             unsigned int index =
                                 (side == -1 ? j : (static_cast<unsigned int>(rm_obj[i]->GetOutline(0)->corner_.size()) / 2 - (j + 1)));
-                            OutlineCornerRoad* tmp = static_cast<OutlineCornerRoad*>(rm_obj[i]->GetOutline(0)->corner_[index]);
-                            OutlineCorner*     corner =
-                                static_cast<OutlineCorner*>(new OutlineCornerRoad(tmp->roadId_,
-                                                                                  tmp->s_,
-                                                                                  tmp->t_ + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
-                                                                                  TUNNEL_HEIGHT,
-                                                                                  TUNNEL_ROOF_THICKNESS,
-                                                                                  0.0,
-                                                                                  0.0,
-                                                                                  0.0));
+                            OutlineCornerRoad* tmp    = static_cast<OutlineCornerRoad*>(rm_obj[i]->GetOutline(0)->corner_[index]);
+                            OutlineCorner*     corner = static_cast<OutlineCorner*>(
+                                new OutlineCornerRoad(tmp->roadId_,
+                                                      static_cast<id_t>(i * rm_obj[i]->GetOutline(0)->corner_.size() / 2 + j),
+                                                      tmp->s_,
+                                                      tmp->t_ + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
+                                                      TUNNEL_HEIGHT,
+                                                      TUNNEL_ROOF_THICKNESS,
+                                                      0.0,
+                                                      0.0,
+                                                      0.0));
                             outline->AddCorner(corner);
                         }
                     }
