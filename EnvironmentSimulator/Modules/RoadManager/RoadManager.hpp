@@ -2042,10 +2042,6 @@ namespace roadmanager
             for (size_t i = 0; i < outlines_.size(); i++)
                 delete (outlines_[i]);
             outlines_.clear();
-
-            for (size_t i = 0; i < repeats_.size(); i++)
-                delete (repeats_[i]);
-            repeats_.clear();
         }
 
         static std::string Type2Str(ObjectType type);
@@ -2131,32 +2127,13 @@ namespace roadmanager
         {
             outlines_.push_back(outline);
         }
-        void SetRepeat(Repeat *repeat);
-        void AddRepeat(Repeat *repeat)
-        {
-            repeats_.push_back(repeat);
-        };
-        Repeat *GetRepeat() const
-        {
-            return repeat_;
-        }
-
         unsigned int GetNumberOfOutlines() const
         {
             return static_cast<unsigned int>(outlines_.size());
         }
-        unsigned int GetNumberOfRepeats() const
-        {
-            return static_cast<unsigned int>(repeats_.size());
-        }
-
         Outline *GetOutline(unsigned int i) const
         {
             return (i < outlines_.size()) ? outlines_[i] : 0;
-        }
-        Repeat *GetRepeatByIdx(unsigned int i) const
-        {
-            return (i < repeats_.size()) ? repeats_[i] : 0;
         }
         ParkingSpace GetParkingSpace() const
         {
@@ -2190,8 +2167,6 @@ namespace roadmanager
         double                 pitch_;
         double                 roll_;
         std::vector<Outline *> outlines_;
-        Repeat                *repeat_ = nullptr;
-        std::vector<Repeat *>  repeats_;
         ParkingSpace           parking_space_;
         float                  color_[4]              = {0.0, 0.0, 0.0, 0.0};
         TunnelComponentType    tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
