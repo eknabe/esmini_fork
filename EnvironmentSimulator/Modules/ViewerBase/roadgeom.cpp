@@ -1134,52 +1134,116 @@ namespace roadgeom
 
                 if (object->GetNumberOfOutlines() == 0)
                 {
-                    LOG_ERROR("No outline defined for object {} with id {}", object->GetName(), object->GetId());
+                    LOG_ERROR("Unexpected: No outline defined for object {} with id {}", object->GetName(), object->GetId());
                 }
                 else
                 {
-                    for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
+                    // check for 3D model, assuming object name is the basename of a 3D model file
+                    std::string filename = object->GetName();
+                    if (!filename.empty())
                     {
-                        roadmanager::Outline*    outline = object->GetOutline(j);
-                        osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
-                        if (olgroup != nullptr)
+                        bool ext_specified = FileNameExtOf(filename) != "";
+                        if (!ext_specified)
                         {
-                            SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
-                            objGroup->addChild(olgroup);
+                            filename += ".osgb";  // add missing extension
+                        }
+
+                        tx = LoadRoadFeature(road, filename, exe_path);
+
+                        if (tx == nullptr)
+                        {
+                            const char* msg = "Failed to load model {} for object {}, creating boundning box";
+                            if (ext_specified)
+                            {
+                                // if even extension, e.g. .osgb, was specified, consider missing model as a warning
+                                LOG_WARN(msg, filename, object->GetName());
+                            }
+                            else
+                            {
+                                LOG_DEBUG(msg, filename, object->GetName());
+                            }
+                        }
+                        else
+                        {
+                            LOG_DEBUG("Loaded object {} 3D model {}", object->GetName(), filename);
                         }
                     }
 
-                    if (object->GetNumberOfOutlines() == 1 && object->GetOutline(0)->IsBoundingBox())
+                    bool bounding_box = false;
+                    for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                     {
-                        LOG_DEBUG("Created bounding box geometry for object {}", object->GetName());
+                        roadmanager::Outline* outline = object->GetOutline(j);
+                        if (tx && outline->IsBoundingBox())
+                        {
+                            objGroup->addChild(tx);
+                        }
+                        else
+                        {
+                            osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
+                            if (olgroup != nullptr)
+                            {
+                                if (outline->IsBoundingBox())
+                                {
+                                    SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_bounding_box");
+                                    if (j > 0 && bounding_box == false)
+                                    {
+                                        LOG_ERROR("Unexpected: Found first bounding box outline at non zero index {}", j);
+                                    }
+                                    bounding_box = true;
+                                }
+                                else
+                                {
+                                    SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
+                                    if (j > 0 && bounding_box == false)
+                                    {
+                                        LOG_ERROR("Unexpected: Found explicit outline at index {} after previous bounding box", j);
+                                    }
+                                    bounding_box = true;
+                                }
+                                objGroup->addChild(olgroup);
+                            }
+                        }
                     }
-                    else
+
+                    if (object->GetNumberOfOutlines() > 0)
                     {
                         explicit_outline_created = true;
                         LOG_DEBUG("Created {} outline geometries for object {}", object->GetNumberOfOutlines(), object->GetName());
                     }
                 }
+#if 0
+                    double dim_x = 0.0;
+                    double dim_y = 0.0;
+                    double dim_z = 0.0;
 
-                // absolute path or relative to current directory
-                std::string filename = object->GetName();
-
-                // Assume name is representing a 3D model filename
-                if (!filename.empty())
-                {
-                    if (FileNameExtOf(filename) == "")
+                    osg::BoundingBox boundingBox;
+                    if (tx != nullptr)
                     {
-                        filename += ".osgb";  // add missing extension
-                    }
+                        osg::ComputeBoundsVisitor cbv;
+                        tx->accept(cbv);
+                        boundingBox = cbv.getBoundingBox();
 
-                    tx = LoadRoadFeature(road, filename, exe_path);
-
-                    if (tx == nullptr)
-                    {
-                        LOG_DEBUG("Failed attempt loading road object model file: {} ({}). Creating a bounding box as stand in.",
-                                  filename,
-                                  object->GetName());
+                        dim_x = boundingBox._max.x() - boundingBox._min.x();
+                        dim_y = boundingBox._max.y() - boundingBox._min.y();
+                        dim_z = boundingBox._max.z() - boundingBox._min.z();
+                        if (object->GetLength() < SMALL_NUMBER && dim_x > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing length, set to bounding box length {:.2f}", object->GetName(), dim_x);
+                            object->SetLength(dim_x);
+                        }
+                        if (object->GetWidth() < SMALL_NUMBER && dim_y > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing width, set to bounding box width {:.2f}", object->GetName(), dim_y);
+                            object->SetWidth(dim_y);
+                        }
+                        if (object->GetHeight() < SMALL_NUMBER && dim_z > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing height, set to bounding box height {:.2f}", object->GetName(), dim_z);
+                            object->SetHeight(dim_z);
+                        }
                     }
                 }
+#endif
 
 #if 0
                 double orientation = object->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? M_PI : 0.0;
