@@ -92,7 +92,7 @@ public:
     /**
     Fills up the osi message with Stationary Object from the OpenDRIVE description
     */
-    int UpdateOSIStationaryObjectODR(roadmanager::RMObject* object);
+    int UpdateOSIStationaryObjectGroupODR(roadmanager::RMObjectGroup* object_group);
     /**
     Fills up the osi message with Stationary Object
     */
