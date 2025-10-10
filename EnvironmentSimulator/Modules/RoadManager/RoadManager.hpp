@@ -1753,6 +1753,13 @@ namespace roadmanager
             CONTOUR_TYPE_QUAD_STRIP
         } ContourType;
 
+        typedef enum
+        {
+            CORNER_TYPE_UNDEFINED,
+            CORNER_TYPE_LOCAL,
+            CORNER_TYPE_ROAD
+        } CornerType;
+
         id_t                         id_       = ID_UNDEFINED;
         FillType                     fillType_ = FILL_TYPE_UNDEFINED;
         bool                         closed_   = false;
@@ -1796,6 +1803,21 @@ namespace roadmanager
         bool IsBoundingBox() const
         {
             return bounding_box_;
+        }
+        CornerType GetCornerType() const
+        {
+            if (corner_.size() > 0)
+            {
+                if (!strcmp(typeid(corner_[0]).name(), "OutlineCornerLocal"))
+                {
+                    return CORNER_TYPE_LOCAL;
+                }
+                else
+                {
+                    return CORNER_TYPE_ROAD;
+                }
+            }
+            return CORNER_TYPE_UNDEFINED;
         }
     };
 
@@ -1982,50 +2004,12 @@ namespace roadmanager
     class RMObject : public RoadObject
     {
     public:
-        enum class ObjectType
-        {
-            BARRIER,
-            BIKE,
-            BUILDING,
-            BUS,
-            CAR,
-            CROSSWALK,
-            GANTRY,
-            MOTORBIKE,
-            NONE,
-            OBSTACLE,
-            PARKINGSPACE,
-            PATCH,
-            PEDESTRIAN,
-            POLE,
-            RAILING,
-            ROADMARK,
-            SOUNDBARRIER,
-            STREETLAMP,
-            TRAFFICISLAND,
-            TRAILER,
-            TRAIN,
-            TRAM,
-            TREE,
-            VAN,
-            VEGETATION,
-            WIND
-        };
-
-        enum class TunnelComponentType
-        {
-            NO_TUNNEL,
-            TUNNEL_WALL,
-            TUNNEL_ROOF
-        };
-
         RMObject(double      s,
                  double      t,
                  id_t        id,
                  std::string name,
                  Orientation orientation,
                  double      z_offset,
-                 ObjectType  type,
                  double      length,
                  double      height,
                  double      width,
@@ -2037,6 +2021,14 @@ namespace roadmanager
                  double      z,
                  double      h);
 
+        // delta position, orientation and scale factors for repeated object
+        struct RepeatInfo
+        {
+            double scale_height = 1.0;
+            double scale_length = 1.0;
+            double scale_width  = 1.0;
+        };
+
         ~RMObject()
         {
             for (size_t i = 0; i < outlines_.size(); i++)
@@ -2044,20 +2036,9 @@ namespace roadmanager
             outlines_.clear();
         }
 
-        static std::string Type2Str(ObjectType type);
-        static ObjectType  Str2Type(std::string type);
-
         std::string GetName() const
         {
             return name_;
-        }
-        std::string GetTypeStr() const
-        {
-            return Type2Str(type_);
-        }
-        ObjectType GetType() const
-        {
-            return type_;
         }
         id_t GetId() const
         {
@@ -2139,22 +2120,13 @@ namespace roadmanager
         {
             return parking_space_;
         }
-        float *GetColor()
+        RepeatInfo &GetRepeatInfo()
         {
-            return color_;
-        }
-        TunnelComponentType GetTunnelComponentType() const
-        {
-            return tunnel_component_type_;
-        }
-        void SetTunnelComponentType(const TunnelComponentType tunnel_component_type)
-        {
-            tunnel_component_type_ = tunnel_component_type;
+            return repeat_info_;
         }
 
     private:
         std::string            name_;
-        ObjectType             type_;
         id_t                   id_;
         double                 s_;
         double                 t_;
@@ -2168,8 +2140,123 @@ namespace roadmanager
         double                 roll_;
         std::vector<Outline *> outlines_;
         ParkingSpace           parking_space_;
-        float                  color_[4]              = {0.0, 0.0, 0.0, 0.0};
-        TunnelComponentType    tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
+        RepeatInfo             repeat_info_;
+    };
+
+    // a RMObjectGroup corresponds to a single road object, reusing any 3D model
+    class RMObjectGroup
+    {
+    public:
+        enum class ObjectType
+        {
+            BARRIER,
+            BIKE,
+            BUILDING,
+            BUS,
+            CAR,
+            CROSSWALK,
+            GANTRY,
+            MOTORBIKE,
+            NONE,
+            OBSTACLE,
+            PARKINGSPACE,
+            PATCH,
+            PEDESTRIAN,
+            POLE,
+            RAILING,
+            ROADMARK,
+            SOUNDBARRIER,
+            STREETLAMP,
+            TRAFFICISLAND,
+            TRAILER,
+            TRAIN,
+            TRAM,
+            TREE,
+            VAN,
+            VEGETATION,
+            WIND,
+            UNDEFINED
+        };
+
+        enum class TunnelComponentType
+        {
+            NO_TUNNEL,
+            TUNNEL_WALL,
+            TUNNEL_ROOF
+        };
+
+        RMObjectGroup() = default;
+
+        RMObjectGroup(std::string name, RMObjectGroup::ObjectType type);
+
+        ~RMObjectGroup()
+        {
+            for (auto &object : objects_)
+            {
+                delete object;
+            }
+            objects_.clear();
+        }
+
+        void AddObject(RMObject *obj)
+        {
+            objects_.push_back(obj);
+        }
+
+        unsigned int GetNumberOfObjects() const
+        {
+            return static_cast<unsigned int>(objects_.size());
+        }
+
+        std::vector<RMObject *> &GetObjects()
+        {
+            return objects_;
+        }
+
+        void SetName(std::string name)
+        {
+            name_ = name;
+        }
+
+        std::string GetName() const
+        {
+            return name_;
+        }
+
+        TunnelComponentType GetTunnelComponentType() const
+        {
+            return tunnel_component_type_;
+        }
+        void SetTunnelComponentType(const TunnelComponentType tunnel_component_type)
+        {
+            tunnel_component_type_ = tunnel_component_type;
+        }
+
+        std::string GetTypeStr() const
+        {
+            return Type2Str(type_);
+        }
+
+        ObjectType GetType() const
+        {
+            return type_;
+        }
+        void SetType(const ObjectType type);
+
+        float *GetColor()
+        {
+            return color_;
+        }
+
+        static std::string Type2Str(ObjectType type);
+        static ObjectType  Str2Type(std::string type);
+
+    private:
+        std::string             name_;
+        ObjectType              type_                  = ObjectType::UNDEFINED;
+        TunnelComponentType     tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
+        std::vector<RMObject *> objects_;
+        float                   color_[4] = {0.0, 0.0, 0.0, 0.0};
     };
 
     enum class SpeedUnit
@@ -2370,11 +2457,14 @@ namespace roadmanager
         Elevation                               *GetSuperElevation(idx_t idx) const;
         unsigned int                             GetNumberOfSignals() const;
         Signal                                  *GetSignal(idx_t idx) const;
-        unsigned int                             GetNumberOfObjects() const
+        unsigned int                             GetNumberOfObjectGroups() const
         {
-            return static_cast<unsigned int>(object_.size());
+            return static_cast<unsigned int>(object_groups_.size());
         }
-        RMObject    *GetRoadObject(idx_t idx) const;
+        std::vector<RMObjectGroup> &GetObjectGroups()
+        {
+            return object_groups_;
+        }
         unsigned int GetNumberOfElevations() const
         {
             return static_cast<unsigned int>(elevation_profile_.size());
@@ -2477,7 +2567,7 @@ namespace roadmanager
         std::vector<LaneSection *>              lane_section_;
         std::vector<LaneOffset *>               lane_offset_;
         std::vector<Signal *>                   signal_;
-        std::vector<RMObject *>                 object_;
+        std::vector<RMObjectGroup>              object_groups_;
         std::vector<Tunnel *>                   tunnel_;
     };
 

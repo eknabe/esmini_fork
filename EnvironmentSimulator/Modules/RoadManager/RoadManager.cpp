@@ -2445,11 +2445,6 @@ Road::~Road()
         delete (signal_[i]);
     }
     signal_.clear();
-    for (size_t i = 0; i < object_.size(); i++)
-    {
-        delete (object_[i]);
-    }
-    object_.clear();
     for (size_t i = 0; i < tunnel_.size(); i++)
     {
         delete (tunnel_[i]);
@@ -2588,24 +2583,9 @@ Signal* Road::GetSignal(idx_t idx) const
     return signal_[idx];
 }
 
-void Road::AddObject(RMObject* object)
-{
-    object_.push_back(object);
-}
-
 void Road::AddTunnel(Tunnel* tunnel)
 {
     tunnel_.push_back(tunnel);
-}
-
-RMObject* Road::GetRoadObject(idx_t idx) const
-{
-    if (idx >= object_.size())
-    {
-        return nullptr;
-    }
-
-    return object_[idx];
 }
 
 OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
@@ -2711,7 +2691,6 @@ roadmanager::RMObject::RMObject(double      s,
                                 std::string name,
                                 Orientation orientation,
                                 double      z_offset,
-                                ObjectType  type,
                                 double      length,
                                 double      height,
                                 double      width,
@@ -2724,7 +2703,6 @@ roadmanager::RMObject::RMObject(double      s,
                                 double      h)
     : RoadObject(x, y, z, h),
       name_(name),
-      type_(type),
       id_(id),
       s_(s),
       t_(t),
@@ -2737,6 +2715,17 @@ roadmanager::RMObject::RMObject(double      s,
       pitch_(pitch),
       roll_(roll)
 {
+}
+
+RMObjectGroup::RMObjectGroup(std::string name, RMObjectGroup::ObjectType type) : name_(name)
+{
+    SetType(type);
+}
+
+void RMObjectGroup::SetType(ObjectType type)
+{
+    type_ = type;
+
     // set defautl color based on object type
     // Set color based on object type
     if (type_ == ObjectType::BUILDING || type_ == ObjectType::BARRIER)
@@ -2769,7 +2758,7 @@ roadmanager::RMObject::RMObject(double      s,
     }
 }
 
-std::string RMObject::Type2Str(RMObject::ObjectType type)
+std::string RMObjectGroup::Type2Str(RMObjectGroup::ObjectType type)
 {
     unsigned int t = static_cast<unsigned int>(type);
     if (t < sizeof(object_type_str) / sizeof(char*))
@@ -2784,7 +2773,7 @@ std::string RMObject::Type2Str(RMObject::ObjectType type)
     return "";
 }
 
-RMObject::ObjectType RMObject::Str2Type(std::string type)
+RMObjectGroup::ObjectType RMObjectGroup::Str2Type(std::string type)
 {
     int n_types = static_cast<int>(sizeof(object_type_str) / sizeof(char*));
 
@@ -2798,7 +2787,7 @@ RMObject::ObjectType RMObject::Str2Type(std::string type)
 
     LOG_ERROR("Unsupported object type: {} - interpret as NONE", type);
 
-    return RMObject::ObjectType::NONE;
+    return RMObjectGroup::ObjectType::NONE;
 }
 
 double Road::GetLaneOffset(double s) const
@@ -4681,8 +4670,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     orientation = RMObject::Orientation::NEGATIVE;
                 }
 
-                std::string          type_str = ReadAttributeAsString(object, "type", "", false);
-                RMObject::ObjectType type     = RMObject::Str2Type(type_str);
+                std::string               type_str = ReadAttributeAsString(object, "type", "", false);
+                RMObjectGroup::ObjectType type     = RMObjectGroup::Str2Type(type_str);
 
                 double length = ReadAttributeAsDouble(object, "length", 0.0, false);
                 double width  = ReadAttributeAsDouble(object, "width", 0.0, false);
@@ -4718,27 +4707,50 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 double         s_parameter = 0.0;  // used for incrementing repeat individuals
                 bool           done        = false;
 
+                RMObjectGroup&       object_group = r->GetObjectGroups().emplace_back(name, type);
+                RMObject::RepeatInfo repeat_info;
+
+                // repeat parameters
+                double rs            = s;
+                double rlength       = length;
+                double rdistance     = 0.0;
+                double rtStart       = t;
+                double rtEnd         = t;
+                double rheightStart  = height;
+                double rheightEnd    = height;
+                double rzOffsetStart = z_offset;
+                double rzOffsetEnd   = z_offset;
+                double rwidthStart   = width;
+                double rwidthEnd     = width;
+                double rlengthStart  = length;
+                double rlengthEnd    = length;
+                double rradiusStart  = radius;
+                double rradiusEnd    = radius;
+
                 while (!done)
                 {
-                    // apply parameters from any repeat element
                     if (repeat_node)
                     {
-                        double rs            = ReadAttributeAsDouble(repeat_node, "s", s, true);
-                        double rlength       = ReadAttributeAsDouble(repeat_node, "length", length, true);
-                        double rdistance     = ReadAttributeAsDouble(repeat_node, "distance", 0.0, true);
-                        double rtStart       = ReadAttributeAsDouble(repeat_node, "tStart", t, true);
-                        double rtEnd         = ReadAttributeAsDouble(repeat_node, "tEnd", t, true);
-                        double rheightStart  = ReadAttributeAsDouble(repeat_node, "heightStart", height, true);
-                        double rheightEnd    = ReadAttributeAsDouble(repeat_node, "heightEnd", height, true);
-                        double rzOffsetStart = ReadAttributeAsDouble(repeat_node, "zOffsetStart", z_offset, true);
-                        double rzOffsetEnd   = ReadAttributeAsDouble(repeat_node, "zOffsetEnd", z_offset, true);
+                        if (s_parameter < SMALL_NUMBER)
+                        {
+                            // only read repeat attributes once per repeat entry
+                            rs            = ReadAttributeAsDouble(repeat_node, "s", s, true);
+                            rlength       = ReadAttributeAsDouble(repeat_node, "length", length, true);
+                            rdistance     = ReadAttributeAsDouble(repeat_node, "distance", 0.0, true);
+                            rtStart       = ReadAttributeAsDouble(repeat_node, "tStart", t, true);
+                            rtEnd         = ReadAttributeAsDouble(repeat_node, "tEnd", t, true);
+                            rheightStart  = ReadAttributeAsDouble(repeat_node, "heightStart", height, true);
+                            rheightEnd    = ReadAttributeAsDouble(repeat_node, "heightEnd", height, true);
+                            rzOffsetStart = ReadAttributeAsDouble(repeat_node, "zOffsetStart", z_offset, true);
+                            rzOffsetEnd   = ReadAttributeAsDouble(repeat_node, "zOffsetEnd", z_offset, true);
 
-                        double rwidthStart  = ReadAttributeAsDouble(repeat_node, "widthStart", width, false);
-                        double rwidthEnd    = ReadAttributeAsDouble(repeat_node, "widthEnd", width, false);
-                        double rlengthStart = ReadAttributeAsDouble(repeat_node, "lengthStart", length, false);
-                        double rlengthEnd   = ReadAttributeAsDouble(repeat_node, "lengthEnd", length, false);
-                        double rradiusStart = ReadAttributeAsDouble(repeat_node, "radiusStart", radius, false);
-                        double rradiusEnd   = ReadAttributeAsDouble(repeat_node, "radiusEnd", radius, false);
+                            rwidthStart  = ReadAttributeAsDouble(repeat_node, "widthStart", width, false);
+                            rwidthEnd    = ReadAttributeAsDouble(repeat_node, "widthEnd", width, false);
+                            rlengthStart = ReadAttributeAsDouble(repeat_node, "lengthStart", length, false);
+                            rlengthEnd   = ReadAttributeAsDouble(repeat_node, "lengthEnd", length, false);
+                            rradiusStart = ReadAttributeAsDouble(repeat_node, "radiusStart", radius, false);
+                            rradiusEnd   = ReadAttributeAsDouble(repeat_node, "radiusEnd", radius, false);
+                        }
 
                         if (s_parameter < rlength - SMALL_NUMBER)
                         {
@@ -4762,6 +4774,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             height   = rheightStart + w * (rheightEnd - rheightStart);
                             width    = rwidthStart + w * (rwidthEnd - rwidthStart);
                             radius   = rradiusStart + w * (rradiusEnd - rradiusStart);
+
+                            repeat_info.scale_height = height / MAX(rheightStart, SMALL_NUMBER);
+                            repeat_info.scale_length = length / MAX(rlengthStart, SMALL_NUMBER);
+                            repeat_info.scale_width  = width / MAX(rwidthStart, SMALL_NUMBER);
 
                             s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
                         }
@@ -4793,7 +4809,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                  name,
                                                  orientation,
                                                  z_offset,
-                                                 type,
                                                  length,
                                                  height,
                                                  width,
@@ -4804,6 +4819,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                  pos.GetY(),
                                                  pos.GetZ(),
                                                  pos.GetHRoad());
+
+                    obj->GetRepeatInfo() = repeat_info;
 
                     // add any outlines
                     pugi::xml_node outlines_node = object.child("outlines");
@@ -4866,7 +4883,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     }
 
                     // finally add the object to the road
-                    r->AddObject(obj);
+                    object_group.AddObject(obj);
                 }
 
 #if 0  // TODO: Special case for continuous outlines
@@ -5194,11 +5211,6 @@ bool OpenDrive::LoadOpenDriveFile(const char* filename, bool replace)
     }
 
     return ParseOpenDriveXML(doc);
-}
-
-void RMObject::SetRepeat(Repeat* repeat)
-{
-    repeat_ = repeat;
 }
 
 Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point)
@@ -7906,8 +7918,9 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
             unsigned int      steps = static_cast<unsigned int>(tunnel->length_ / 10.0) + 1;  // nr of tunnel segments
             double            ds    = tunnel->length_ / static_cast<double>(steps);
             Position          pos;
-            RMObject*         rm_obj[3] = {nullptr, nullptr, nullptr};
-            std::vector<bool> keep[2]   = {std::vector<bool>(steps + 1), std::vector<bool>(steps + 1)};  // keep track of which vertices to keep
+            RMObjectGroup     object_group[3];
+            RMObject*         rm_obj  = nullptr;
+            std::vector<bool> keep[2] = {std::vector<bool>(steps + 1), std::vector<bool>(steps + 1)};  // keep track of which vertices to keep
             std::vector<tpoint_struct> tpoint[2] = {std::vector<tpoint_struct>(steps + 1),
                                                     std::vector<tpoint_struct>(steps + 1)};  // OSI points for left and right side
 
@@ -8012,85 +8025,85 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                 }
                             }
                         }
+                        rm_obj = new RMObject(tunnel->s_,
+                                              0.0,
+                                              tunnel->id_,
+                                              tunnel->name_,
+                                              RoadObject::Orientation(),
+                                              0.0,
+                                              tunnel->length_,
+                                              TUNNEL_HEIGHT,
+                                              tunnel->width_,
+                                              0.0,
+                                              0.0,
+                                              0.0,
+                                              road->GetGeometry(0)->GetX(),
+                                              road->GetGeometry(0)->GetY(),
+                                              0.0,
+                                              0.0);
+                        rm_obj->AddOutline(outline);
 
-                        rm_obj[i] = new RMObject(tunnel->s_,
-                                                 0.0,
-                                                 tunnel->id_,
-                                                 tunnel->name_,
-                                                 RoadObject::Orientation(),
-                                                 0.0,
-                                                 RMObject::ObjectType::BARRIER,
-                                                 tunnel->length_,
-                                                 TUNNEL_HEIGHT,
-                                                 tunnel->width_,
-                                                 0.0,
-                                                 0.0,
-                                                 0.0,
-                                                 road->GetGeometry(0)->GetX(),
-                                                 road->GetGeometry(0)->GetY(),
-                                                 0.0,
-                                                 0.0);
-                        rm_obj[i]->AddOutline(outline);
-                        rm_obj[i]->SetTunnelComponentType(RMObject::TunnelComponentType::TUNNEL_WALL);
-                        road->AddObject(rm_obj[i]);
+                        object_group[i].SetType(RMObjectGroup::ObjectType::BARRIER);
+                        object_group[i].SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_WALL);
+                        object_group[i].AddObject(rm_obj);
                     }
                 }
 
-                if (rm_obj[0] != nullptr && rm_obj[1] != nullptr)
+                // and the roof which covers the outer points of both walls
+                Outline* outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
+                outline->roof_ = true;  // top face on tunnel roof
+
+                // starting with points along right side along tunnel, coming back left side
+                for (unsigned int i = 0; i < 2; i++)
                 {
-                    // and the roof which covers the outer points of both walls
-                    Outline* outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
-                    outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
-                    outline->roof_ = true;  // top face on tunnel roof
-
-                    // starting with points along right side along tunnel, coming back left side
-                    for (unsigned int i = 0; i < 2; i++)
+                    int side = (i == 0) ? -1 : 1;
+                    for (unsigned int j = 0; rm_obj->GetOutline(0) && j < rm_obj->GetOutline(0)->corner_.size() / 2; j++)
                     {
-                        int side = (i == 0) ? -1 : 1;
-                        for (unsigned int j = 0; rm_obj[i]->GetOutline(0) && j < rm_obj[i]->GetOutline(0)->corner_.size() / 2; j++)
-                        {
-                            unsigned int index =
-                                (side == -1 ? j : (static_cast<unsigned int>(rm_obj[i]->GetOutline(0)->corner_.size()) / 2 - (j + 1)));
-                            OutlineCornerRoad* tmp    = static_cast<OutlineCornerRoad*>(rm_obj[i]->GetOutline(0)->corner_[index]);
-                            OutlineCorner*     corner = static_cast<OutlineCorner*>(
-                                new OutlineCornerRoad(tmp->roadId_,
-                                                      static_cast<id_t>(i * rm_obj[i]->GetOutline(0)->corner_.size() / 2 + j),
-                                                      tmp->s_,
-                                                      tmp->t_ + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
-                                                      TUNNEL_HEIGHT,
-                                                      TUNNEL_ROOF_THICKNESS,
-                                                      0.0,
-                                                      0.0,
-                                                      0.0));
-                            outline->AddCorner(corner);
-                        }
+                        unsigned int index     = (side == -1 ? j : (static_cast<unsigned int>(rm_obj->GetOutline(0)->corner_.size()) / 2 - (j + 1)));
+                        OutlineCornerRoad* tmp = static_cast<OutlineCornerRoad*>(rm_obj->GetOutline(0)->corner_[index]);
+                        OutlineCorner*     corner =
+                            static_cast<OutlineCorner*>(new OutlineCornerRoad(tmp->roadId_,
+                                                                              static_cast<id_t>(i * rm_obj->GetOutline(0)->corner_.size() / 2 + j),
+                                                                              tmp->s_,
+                                                                              tmp->t_ + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
+                                                                              TUNNEL_HEIGHT,
+                                                                              TUNNEL_ROOF_THICKNESS,
+                                                                              0.0,
+                                                                              0.0,
+                                                                              0.0));
+                        outline->AddCorner(corner);
                     }
+                }
 
-                    rm_obj[2] = new RMObject(tunnel->s_,
-                                             0.0,
-                                             tunnel->id_,
-                                             tunnel->name_,
-                                             RoadObject::Orientation(),
-                                             0.0,
-                                             RMObject::ObjectType::BARRIER,
-                                             tunnel->length_,
-                                             TUNNEL_HEIGHT,
-                                             tunnel->width_,
-                                             0.0,
-                                             0.0,
-                                             0.0,
-                                             road->GetGeometry(0)->GetX(),
-                                             road->GetGeometry(0)->GetY(),
-                                             0.0,
-                                             0.0);
-                    rm_obj[2]->AddOutline(outline);
-                    rm_obj[2]->SetTunnelComponentType(RMObject::TunnelComponentType::TUNNEL_ROOF);
-                    road->AddObject(rm_obj[2]);
+                rm_obj = new RMObject(tunnel->s_,
+                                      0.0,
+                                      tunnel->id_,
+                                      tunnel->name_,
+                                      RoadObject::Orientation(),
+                                      0.0,
+                                      tunnel->length_,
+                                      TUNNEL_HEIGHT,
+                                      tunnel->width_,
+                                      0.0,
+                                      0.0,
+                                      0.0,
+                                      road->GetGeometry(0)->GetX(),
+                                      road->GetGeometry(0)->GetY(),
+                                      0.0,
+                                      0.0);
+                rm_obj->AddOutline(outline);
 
-                    for (auto o : rm_obj)
-                    {
-                        o->GetColor()[3] = static_cast<float>(1.0 - tunnel->transparency_);  // set semitransparent
-                    }
+                RMObjectGroup rmgroup;
+                rmgroup.SetType(RMObjectGroup::ObjectType::BARRIER);
+                rmgroup.SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_ROOF);
+                rmgroup.AddObject(rm_obj);
+                road->GetObjectGroups().push_back(rmgroup);
+
+                for (auto& og : object_group)
+                {
+                    og.GetColor()[3] = static_cast<float>(1.0 - tunnel->transparency_);  // set semitransparent
+                    road->GetObjectGroups().emplace_back(og);
                 }
             }
         }

@@ -1111,104 +1111,128 @@ namespace roadgeom
                 objGroup->addChild(signGroup);
             }
 
-            for (unsigned int o = 0; o < road->GetNumberOfObjects(); o++)
+            for (auto& object_group : road->GetObjectGroups())
             {
-                roadmanager::RMObject* object = road->GetRoadObject(o);
-                osg::Vec4              color;
-                tx                   = nullptr;
                 std::string obj_type = prefix_road_object;  // road object is default
-                switch (object->GetTunnelComponentType())
+                switch (object_group.GetTunnelComponentType())
                 {
-                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
+                    case roadmanager::RMObjectGroup::TunnelComponentType::TUNNEL_WALL:
                         obj_type = prefix_tunnel_wall;
                         break;
-                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
+                    case roadmanager::RMObjectGroup::TunnelComponentType::TUNNEL_ROOF:
                         obj_type = prefix_tunnel_roof;
                         break;
                 }
 
+                osg::Vec4 color;
                 for (unsigned int c = 0; c < 4; c++)
                 {
-                    color[c] = object->GetColor()[c];
+                    color[c] = object_group.GetColor()[c];
                 }
 
-                if (object->GetNumberOfOutlines() == 0)
+                // check for 3D model, assuming object name is the basename of a 3D model file
+                osg::ref_ptr<osg::PositionAttitudeTransform> tx_model = nullptr;
+                std::string                                  filename = object_group.GetName();
+                if (!filename.empty())
                 {
-                    LOG_ERROR("Unexpected: No outline defined for object {} with id {}", object->GetName(), object->GetId());
-                }
-                else
-                {
-                    // check for 3D model, assuming object name is the basename of a 3D model file
-                    std::string filename = object->GetName();
-                    if (!filename.empty())
+                    bool ext_specified = FileNameExtOf(filename) != "";
+                    if (!ext_specified)
                     {
-                        bool ext_specified = FileNameExtOf(filename) != "";
-                        if (!ext_specified)
+                        filename += ".osgb";  // add missing extension
+                    }
+
+                    tx_model = LoadRoadFeature(road, filename, exe_path);
+
+                    if (tx_model == nullptr)
+                    {
+                        const char* msg = "Failed to load model {} for object {}, creating boundning box";
+                        if (ext_specified)
                         {
-                            filename += ".osgb";  // add missing extension
+                            // if even extension, e.g. .osgb, was specified, consider missing model as a warning
+                            LOG_WARN(msg, filename, object_group.GetName());
                         }
-
-                        tx = LoadRoadFeature(road, filename, exe_path);
-
-                        if (tx == nullptr)
+                        else
                         {
-                            const char* msg = "Failed to load model {} for object {}, creating boundning box";
-                            if (ext_specified)
+                            LOG_DEBUG(msg, filename, object_group.GetName());
+                        }
+                    }
+                    else
+                    {
+                        tx_model->setDataVariance(osg::Object::STATIC);
+                        LOG_DEBUG("Loaded object {} 3D model {}", object_group.GetName(), filename);
+                    }
+                }
+
+                for (unsigned int o = 0; o < object_group.GetNumberOfObjects(); o++)
+                {
+                    roadmanager::RMObject*                       object      = object_group.GetObjects()[o];
+                    osg::ref_ptr<osg::PositionAttitudeTransform> tx_instance = nullptr;
+
+                    if (object->GetNumberOfOutlines() == 0)
+                    {
+                        LOG_ERROR("Unexpected: No outline defined for object {} with id {}", object->GetName(), object->GetId());
+                    }
+                    else
+                    {
+                        osg::Node* topnode = nullptr;
+                        if (tx_model)
+                        {
+                            // any found 3D model overrides any outlines
+                            if (o == 0)
                             {
-                                // if even extension, e.g. .osgb, was specified, consider missing model as a warning
-                                LOG_WARN(msg, filename, object->GetName());
+                                tx_instance = tx_model;  // use original for first object
                             }
                             else
                             {
-                                LOG_DEBUG(msg, filename, object->GetName());
+                                // shallow clone the rest, reusing actual geometry definitions
+                                tx_instance = dynamic_cast<osg::PositionAttitudeTransform*>(tx_model->clone(osg::CopyOp::SHALLOW_COPY));
                             }
                         }
                         else
                         {
-                            LOG_DEBUG("Loaded object {} 3D model {}", object->GetName(), filename);
-                        }
-                    }
+                            bool all_outlines_local_corners = true;
+                            tx_instance                     = new osg::PositionAttitudeTransform;
 
-                    bool bounding_box = false;
-                    for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
-                    {
-                        roadmanager::Outline* outline = object->GetOutline(j);
-                        if (tx && outline->IsBoundingBox())
-                        {
-                            objGroup->addChild(tx);
-                        }
-                        else
-                        {
-                            osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
-                            if (olgroup != nullptr)
+                            for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                             {
-                                if (outline->IsBoundingBox())
+                                roadmanager::Outline* outline = object->GetOutline(j);
+                                all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::Outline::CornerType::CORNER_TYPE_LOCAL);
+
+                                if (o == 0)
                                 {
-                                    SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_bounding_box");
-                                    if (j > 0 && bounding_box == false)
-                                    {
-                                        LOG_ERROR("Unexpected: Found first bounding box outline at non zero index {}", j);
-                                    }
-                                    bounding_box = true;
+                                    // create a model blueprint for potential reuse (if all outlines turns out to be made of local corners)
+                                    tx_instance->addChild(CreateOutlineObject(outline, color, origin));
+                                    tx_model = tx_instance;  // use original for first object
+                                    all_outlines_local_corners &= outline->GetCornerType() == roadmanager::Outline::CornerType::CORNER_TYPE_LOCAL;
+                                }
+                                else if (all_outlines_local_corners)
+                                {
+                                    // all corners local means compound outline group can be reused, shape will not depend on road
+                                    tx_instance->addChild(dynamic_cast<osg::PositionAttitudeTransform*>(tx_model->clone(osg::CopyOp::SHALLOW_COPY)));
                                 }
                                 else
                                 {
-                                    SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
-                                    if (j > 0 && bounding_box == false)
-                                    {
-                                        LOG_ERROR("Unexpected: Found explicit outline at index {} after previous bounding box", j);
-                                    }
-                                    bounding_box = true;
+                                    // road corner type requires unique instances
+                                    tx_instance->addChild(CreateOutlineObject(outline, color, origin));
                                 }
-                                objGroup->addChild(olgroup);
                             }
                         }
-                    }
 
-                    if (object->GetNumberOfOutlines() > 0)
-                    {
-                        explicit_outline_created = true;
-                        LOG_DEBUG("Created {} outline geometries for object {}", object->GetNumberOfOutlines(), object->GetName());
+                        SetNodeName(*tx_instance, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(o));
+
+                        // scale model according to repeat definition
+                        tx_instance->setScale(osg::Vec3(object->GetRepeatInfo().scale_length,
+                                                        object->GetRepeatInfo().scale_width,
+                                                        object->GetRepeatInfo().scale_height));
+
+                        tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ()));
+                        objGroup->addChild(tx_instance);
+
+                        if (object->GetNumberOfOutlines() > 0)
+                        {
+                            explicit_outline_created = true;
+                            LOG_DEBUG("Created {} outline geometries for object {}", object->GetNumberOfOutlines(), object->GetName());
+                        }
                     }
                 }
 #if 0
