@@ -1210,7 +1210,7 @@ namespace roadgeom
                                 {
                                     // all corners local means compound outline group can be reused, shape will not depend on road
                                     tx_instance->addChild(
-                                        dynamic_cast<osg::PositionAttitudeTransform*>(tx_outline_original->clone(osg::CopyOp::SHALLOW_COPY)));
+                                        dynamic_cast<osg::Node*>(tx_outline_original->getChild(0)->clone(osg::CopyOp::SHALLOW_COPY)));
                                 }
                                 else
                                 {
@@ -1226,9 +1226,11 @@ namespace roadgeom
                         tx_instance->setScale(osg::Vec3(object->GetRepeatInfo().scale_length,
                                                         object->GetRepeatInfo().scale_width,
                                                         object->GetRepeatInfo().scale_height));
+                        tx_instance->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
 
-                        tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ()));
-                        tx_instance->setAttitude(osg::Quat(object->GetH(), osg::Vec3(0, 0, 1)));
+                        printf("x %.2f y %.2f\n", object->GetX(), object->GetY());
+                        tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ() + object->GetZOffset()));
+                        tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetRepeatInfo().heading_offset, osg::Vec3(0, 0, 1)));
                         objGroup->addChild(tx_instance);
 
                         if (object->GetNumberOfOutlines() > 0)
@@ -1694,7 +1696,7 @@ namespace roadgeom
         {
             double                      x, y, z;
             roadmanager::OutlineCorner* corner = corners[i];
-            corner->GetPos(x, y, z);
+            corner->GetPosLocal(x, y, z);
             (*vertices_sides)[i * 2 + 0].set(static_cast<float>(x - origin[0]),
                                              static_cast<float>(y - origin[1]),
                                              static_cast<float>(z + corner->GetHeight()));
@@ -1703,7 +1705,7 @@ namespace roadgeom
             if (i > 0)
             {
                 double x1, y1, z1;
-                corners[i - 1]->GetPos(x1, y1, z1);
+                corners[i - 1]->GetPosLocal(x1, y1, z1);
                 float dx = x1 - x;
                 float dy = y1 - y;
                 cumulative_side_dist += std::sqrt(dx * dx + dy * dy);
@@ -1723,7 +1725,7 @@ namespace roadgeom
                                                                static_cast<float>(z));
 
                 double x2, y2, z2;
-                corners[corners.size() - 1 - i]->GetPos(x2, y2, z2);
+                corners[corners.size() - 1 - i]->GetPosLocal(x2, y2, z2);
                 float dx    = x2 - x;
                 float dy    = y2 - y;
                 float width = std::sqrt(dx * dx + dy * dy);
@@ -1745,8 +1747,8 @@ namespace roadgeom
                 unsigned left_index  = i / 2;
 
                 double xl, yl, zl, xr, yr, zr;
-                corners[left_index]->GetPos(xl, yl, zl);
-                corners[right_index]->GetPos(xr, yr, zr);
+                corners[left_index]->GetPosLocal(xl, yl, zl);
+                corners[right_index]->GetPosLocal(xr, yr, zr);
 
                 (*vertices_top)[i].set(static_cast<float>(xr - origin[0]),
                                        static_cast<float>(yr - origin[1]),
@@ -1767,8 +1769,8 @@ namespace roadgeom
                     unsigned right_index_prev = corners.size() - 1 - ((i - 2) / 2);
 
                     double xl_prev, yl_prev, zl_prev, xr_prev, yr_prev, zr_prev;
-                    corners[left_index_prev]->GetPos(xl_prev, yl_prev, zl_prev);
-                    corners[right_index_prev]->GetPos(xr_prev, yr_prev, zr_prev);
+                    corners[left_index_prev]->GetPosLocal(xl_prev, yl_prev, zl_prev);
+                    corners[right_index_prev]->GetPosLocal(xr_prev, yr_prev, zr_prev);
 
                     osg::Vec3f left_prev(xl_prev, yl_prev, zl_prev);
                     osg::Vec3f right_prev(xr_prev, yr_prev, zr_prev);

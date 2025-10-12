@@ -5148,9 +5148,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         width    = rwidthStart + w * (rwidthEnd - rwidthStart);
                         radius   = rradiusStart + w * (rradiusEnd - rradiusStart);
 
-                        repeat_info.scale_height = height / MAX(rheightStart, SMALL_NUMBER);
-                        repeat_info.scale_length = length / MAX(rlengthStart, SMALL_NUMBER);
-                        repeat_info.scale_width  = width / MAX(rwidthStart, SMALL_NUMBER);
+                        repeat_info.scale_height   = height / MAX(rheightStart, SMALL_NUMBER);
+                        repeat_info.scale_length   = length / MAX(rlengthStart, SMALL_NUMBER);
+                        repeat_info.scale_width    = width / MAX(rwidthStart, SMALL_NUMBER);
+                        repeat_info.heading_offset = heading;
 
                         s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
 

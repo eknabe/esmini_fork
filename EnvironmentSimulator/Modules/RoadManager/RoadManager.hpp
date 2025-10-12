@@ -2055,9 +2055,10 @@ namespace roadmanager
         // scale factors for repeated object
         struct RepeatInfo
         {
-            double scale_height = 1.0;
-            double scale_length = 1.0;
-            double scale_width  = 1.0;
+            double scale_height   = 1.0;
+            double scale_length   = 1.0;
+            double scale_width    = 1.0;
+            double heading_offset = 0.0;
         };
 
         RMObject(double      s,
