@@ -1804,21 +1804,7 @@ namespace roadmanager
         {
             return bounding_box_;
         }
-        CornerType GetCornerType() const
-        {
-            if (corner_.size() > 0)
-            {
-                if (!strcmp(typeid(corner_[0]).name(), "OutlineCornerLocal"))
-                {
-                    return CORNER_TYPE_LOCAL;
-                }
-                else
-                {
-                    return CORNER_TYPE_ROAD;
-                }
-            }
-            return CORNER_TYPE_UNDEFINED;
-        }
+        CornerType GetCornerType() const;
     };
 
     class ParkingSpace
@@ -2004,6 +1990,14 @@ namespace roadmanager
     class RMObject : public RoadObject
     {
     public:
+        // scale factors for repeated object
+        struct RepeatInfo
+        {
+            double scale_height = 1.0;
+            double scale_length = 1.0;
+            double scale_width  = 1.0;
+        };
+
         RMObject(double      s,
                  double      t,
                  id_t        id,
@@ -2020,14 +2014,6 @@ namespace roadmanager
                  double      y,
                  double      z,
                  double      h);
-
-        // delta position, orientation and scale factors for repeated object
-        struct RepeatInfo
-        {
-            double scale_height = 1.0;
-            double scale_length = 1.0;
-            double scale_width  = 1.0;
-        };
 
         ~RMObject()
         {

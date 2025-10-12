@@ -1131,8 +1131,10 @@ namespace roadgeom
                 }
 
                 // check for 3D model, assuming object name is the basename of a 3D model file
-                osg::ref_ptr<osg::PositionAttitudeTransform> tx_model = nullptr;
-                std::string                                  filename = object_group.GetName();
+                osg::ref_ptr<osg::PositionAttitudeTransform> tx_model            = nullptr;  // pointing to any found 3D model
+                osg::ref_ptr<osg::PositionAttitudeTransform> tx_outline_original = nullptr;  // for potential reuse local corner outlines
+
+                std::string filename = object_group.GetName();
                 if (!filename.empty())
                 {
                     bool ext_specified = FileNameExtOf(filename) != "";
@@ -1174,7 +1176,6 @@ namespace roadgeom
                     }
                     else
                     {
-                        osg::Node* topnode = nullptr;
                         if (tx_model)
                         {
                             // any found 3D model overrides any outlines
@@ -1202,13 +1203,14 @@ namespace roadgeom
                                 {
                                     // create a model blueprint for potential reuse (if all outlines turns out to be made of local corners)
                                     tx_instance->addChild(CreateOutlineObject(outline, color, origin));
-                                    tx_model = tx_instance;  // use original for first object
+                                    tx_outline_original = tx_instance;  // use first object as original
                                     all_outlines_local_corners &= outline->GetCornerType() == roadmanager::Outline::CornerType::CORNER_TYPE_LOCAL;
                                 }
                                 else if (all_outlines_local_corners)
                                 {
                                     // all corners local means compound outline group can be reused, shape will not depend on road
-                                    tx_instance->addChild(dynamic_cast<osg::PositionAttitudeTransform*>(tx_model->clone(osg::CopyOp::SHALLOW_COPY)));
+                                    tx_instance->addChild(
+                                        dynamic_cast<osg::PositionAttitudeTransform*>(tx_outline_original->clone(osg::CopyOp::SHALLOW_COPY)));
                                 }
                                 else
                                 {
@@ -1226,6 +1228,7 @@ namespace roadgeom
                                                         object->GetRepeatInfo().scale_height));
 
                         tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ()));
+                        tx_instance->setAttitude(osg::Quat(object->GetH(), osg::Vec3(0, 0, 1)));
                         objGroup->addChild(tx_instance);
 
                         if (object->GetNumberOfOutlines() > 0)

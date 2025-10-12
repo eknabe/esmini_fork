@@ -4710,22 +4710,22 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 RMObjectGroup&       object_group = r->GetObjectGroups().emplace_back(name, type);
                 RMObject::RepeatInfo repeat_info;
 
-                // repeat parameters
-                double rs            = s;
-                double rlength       = length;
+                // initialize repeat parameters only once
+                double rs            = 0.0;
+                double rlength       = 0.0;
                 double rdistance     = 0.0;
-                double rtStart       = t;
-                double rtEnd         = t;
-                double rheightStart  = height;
-                double rheightEnd    = height;
-                double rzOffsetStart = z_offset;
-                double rzOffsetEnd   = z_offset;
-                double rwidthStart   = width;
-                double rwidthEnd     = width;
-                double rlengthStart  = length;
-                double rlengthEnd    = length;
-                double rradiusStart  = radius;
-                double rradiusEnd    = radius;
+                double rtStart       = 0.0;
+                double rtEnd         = 0.0;
+                double rheightStart  = 0.0;
+                double rheightEnd    = 0.0;
+                double rzOffsetStart = 0.0;
+                double rzOffsetEnd   = 0.0;
+                double rwidthStart   = 0.0;
+                double rwidthEnd     = 0.0;
+                double rlengthStart  = 0.0;
+                double rlengthEnd    = 0.0;
+                double rradiusStart  = 0.0;
+                double rradiusEnd    = 0.0;
 
                 while (!done)
                 {
@@ -4752,35 +4752,32 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             rradiusEnd   = ReadAttributeAsDouble(repeat_node, "radiusEnd", radius, false);
                         }
 
-                        if (s_parameter < rlength - SMALL_NUMBER)
-                        {
-                            // if distance is set, use it, otherwise use length of object for delta s
-                            double w = (rlength > SMALL_NUMBER) ? s_parameter / rlength : 0.0;
+                        // if distance is set, use it, otherwise use length of object for delta s
+                        double w = (rlength > SMALL_NUMBER) ? s_parameter / rlength : 0.0;
 
-                            double s_current = rs + s_parameter;
-                            double t_current = rtStart + w * (rtEnd - rtStart);
+                        double s_current = rs + s_parameter;
+                        double t_current = rtStart + w * (rtEnd - rtStart);
 
-                            // set roadposition to calculate corresponding world coordinates
-                            pos.SetTrackPosMode(r->GetId(),
-                                                s_current,
-                                                rtStart + w * (rtEnd - rtStart),
-                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
-                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+                        // set roadposition to calculate corresponding world coordinates
+                        pos.SetTrackPosMode(r->GetId(),
+                                            s_current,
+                                            rtStart + w * (rtEnd - rtStart),
+                                            roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
+                                                roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
 
-                            s        = s_current;
-                            t        = t_current;
-                            z_offset = rzOffsetStart + w * (rzOffsetEnd - rzOffsetStart);
-                            length   = rlengthStart + w * (rlengthEnd - rlengthStart);
-                            height   = rheightStart + w * (rheightEnd - rheightStart);
-                            width    = rwidthStart + w * (rwidthEnd - rwidthStart);
-                            radius   = rradiusStart + w * (rradiusEnd - rradiusStart);
+                        s        = s_current;
+                        t        = t_current;
+                        z_offset = rzOffsetStart + w * (rzOffsetEnd - rzOffsetStart);
+                        length   = rlengthStart + w * (rlengthEnd - rlengthStart);
+                        height   = rheightStart + w * (rheightEnd - rheightStart);
+                        width    = rwidthStart + w * (rwidthEnd - rwidthStart);
+                        radius   = rradiusStart + w * (rradiusEnd - rradiusStart);
 
-                            repeat_info.scale_height = height / MAX(rheightStart, SMALL_NUMBER);
-                            repeat_info.scale_length = length / MAX(rlengthStart, SMALL_NUMBER);
-                            repeat_info.scale_width  = width / MAX(rwidthStart, SMALL_NUMBER);
+                        repeat_info.scale_height = height / MAX(rheightStart, SMALL_NUMBER);
+                        repeat_info.scale_length = length / MAX(rlengthStart, SMALL_NUMBER);
+                        repeat_info.scale_width  = width / MAX(rwidthStart, SMALL_NUMBER);
 
-                            s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
-                        }
+                        s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
 
                         if (repeat_node && s_parameter > rlength - SMALL_NUMBER)
                         {
@@ -4872,11 +4869,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         Outline* outline = new Outline(ids, Outline::FillType::FILL_TYPE_UNDEFINED, true);
                         double   hl      = length / 2.0;
                         double   hw      = width / 2.0;
-
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 0, s, t, -hl, -hw, 0.0, height, heading));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 1, s, t, hl, -hw, 0.0, height, heading));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 2, s, t, hl, hw, 0.0, height, heading));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 3, s, t, -hl, hw, 0.0, height, heading));
+                        double   h       = pos.GetHRoad() + heading;
+                        printf("h %.2f\n", h);
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 0, s, t, -hl, -hw, 0.0, height, h));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 1, s, t, hl, -hw, 0.0, height, h));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 2, s, t, hl, hw, 0.0, height, h));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 3, s, t, -hl, hw, 0.0, height, h));
 
                         outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
                         obj->AddOutline(outline);
@@ -14633,4 +14631,22 @@ int Shape::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_t& inde
     }
 
     return -1;
+}
+
+Outline::CornerType roadmanager::Outline::GetCornerType() const
+{
+    {
+        if (corner_.size() > 0)
+        {
+            if (!strcmp(typeid(*corner_[0]).name(), "class roadmanager::OutlineCornerLocal"))
+            {
+                return CORNER_TYPE_LOCAL;
+            }
+            else
+            {
+                return CORNER_TYPE_ROAD;
+            }
+        }
+        return CORNER_TYPE_UNDEFINED;
+    }
 }
