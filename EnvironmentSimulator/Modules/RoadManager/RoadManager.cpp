@@ -2589,100 +2589,475 @@ void Road::AddTunnel(Tunnel* tunnel)
 }
 
 OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
-                                     id_t   cornerId,
                                      double s,
                                      double t,
                                      double dz,
                                      double height,
                                      double center_s,
                                      double center_t,
-                                     double center_heading)
+                                     double center_heading,
+                                     id_t   cornerId)
     : roadId_(roadId),
-      cornerId_(cornerId),
       s_(s),
       t_(t),
       dz_(dz),
       height_(height),
       center_s_(center_s),
       center_t_(center_t),
-      center_heading_(center_heading)
+      center_heading_(center_heading),
+      cornerId_(cornerId),
+      originalCornerId_(cornerId)
 {
 }
 
 void OutlineCornerRoad::GetPos(double& x, double& y, double& z)
 {
-    roadmanager::Position pos;
-    pos.SetTrackPos(roadId_, s_, t_);
-    x = pos.GetX();
-    y = pos.GetY();
-    z = pos.GetZ() + dz_;
+    if (IsPosCalculated())
+    {
+        x = xPos_;
+        y = yPos_;
+        z = zPos_;
+    }
+    else
+    {
+        roadmanager::Position pos;
+        pos.SetTrackPos(roadId_, s_, t_);
+        x     = pos.GetX();
+        y     = pos.GetY();
+        z     = pos.GetZ() + dz_;
+        xPos_ = x;
+        yPos_ = y;
+        zPos_ = z;
+    }
 }
 
 void OutlineCornerRoad::GetPosLocal(double& x, double& y, double& z)
 {
-    roadmanager::Position pref;
-    pref.SetTrackPos(roadId_, center_s_, center_t_);
-    roadmanager::Position point;
-    point.SetTrackPos(roadId_, s_, t_);
+    if (IsPosLocalCalculated())
+    {
+        x = xPosLocal_;
+        y = yPosLocal_;
+        z = zPosLocal_;
+    }
+    else
+    {
+        roadmanager::Position pref;
+        pref.SetTrackPos(roadId_, center_s_, center_t_);
+        roadmanager::Position point;
+        point.SetTrackPos(roadId_, s_, t_);
+        Global2LocalCoordinates(point.GetX(), point.GetY(), pref.GetX(), pref.GetY(), 0.0, x, y);
+        z          = pref.GetZ() + dz_;
+        xPosLocal_ = x;
+        yPosLocal_ = y;
+        zPosLocal_ = z;
+    }
+}
 
-    Global2LocalCoordinates(point.GetX(), point.GetY(), pref.GetX(), pref.GetY(), 0.0, x, y);
+double OutlineCornerRoad::GetHeight() const
+{
+    return height_;
+}
+id_t OutlineCornerRoad::GetCornerId() const
+{
+    return cornerId_;
+}
+id_t OutlineCornerRoad::GetOriginalCornerId() const
+{
+    return originalCornerId_;
+}
+OutlineCorner::CornerType OutlineCornerRoad::GetCornerType() const
+{
+    return type_;
+}
+bool OutlineCornerRoad::IsPosCalculated() const
+{
+    return !(std::isnan(xPos_) && std::isnan(yPos_) && std::isnan(zPos_));
+}
+bool OutlineCornerRoad::IsPosLocalCalculated() const
+{
+    return !(std::isnan(xPosLocal_) && std::isnan(yPosLocal_) && std::isnan(zPosLocal_));
+}
+void OutlineCornerRoad::SetCornerId(id_t cornerId)
+{
+    cornerId_ = cornerId;
+}
 
-    z = pref.GetZ() + dz_;
+id_t roadmanager::OutlineCornerRoad::GetRoadId() const
+{
+    return roadId_;
+}
+
+double roadmanager::OutlineCornerRoad::GetS() const
+{
+    return s_;
+}
+
+double roadmanager::OutlineCornerRoad::GetT() const
+{
+    return t_;
 }
 
 OutlineCornerLocal::OutlineCornerLocal(id_t   roadId,
-                                       id_t   cornerId,
                                        double s,
                                        double t,
                                        double u,
                                        double v,
                                        double zLocal,
                                        double height,
-                                       double heading)
+                                       double heading,
+                                       id_t   cornerId)
     : roadId_(roadId),
-      cornerId_(cornerId),
       s_(s),
       t_(t),
       u_(u),
       v_(v),
       zLocal_(zLocal),
       height_(height),
-      heading_(heading)
+      heading_(heading),
+      cornerId_(cornerId),
+      originalCornerId_(cornerId)
 {
 }
 
 void OutlineCornerLocal::GetPos(double& x, double& y, double& z)
 {
-    roadmanager::Position pref;
-    pref.SetTrackPosMode(roadId_,
-                         s_,
-                         t_,
-                         roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::P_REL |
-                             roadmanager::Position::PosMode::R_REL);
-    double total_heading = GetAngleSum(pref.GetH(), heading_);
-    double u2, v2;
-    RotateVec2D(u_, v_, total_heading, u2, v2);
+    if (IsPosCalculated())
+    {
+        x = xPos_;
+        y = yPos_;
+        z = zPos_;
+    }
+    else
+    {
+        roadmanager::Position pref;
+        pref.SetTrackPosMode(roadId_,
+                             s_,
+                             t_,
+                             roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::P_REL |
+                                 roadmanager::Position::PosMode::R_REL);
+        double total_heading = GetAngleSum(pref.GetH(), heading_);
+        double u2, v2;
+        RotateVec2D(u_, v_, total_heading, u2, v2);
 
-    x = pref.GetX() + u2;
-    y = pref.GetY() + v2;
-    z = pref.GetZ() + zLocal_;
+        x     = pref.GetX() + u2;
+        y     = pref.GetY() + v2;
+        z     = pref.GetZ() + zLocal_;
+        xPos_ = x;
+        yPos_ = y;
+        zPos_ = z;
+    }
 }
 
-void OutlineCornerLocal::GetPosLocal(double& x, double& y, double& z)
+void OutlineCornerLocal::GetPosLocal(double& u, double& v, double& z)
 {
-    roadmanager::Position pref;
-    pref.SetTrackPosMode(roadId_,
-                         s_,
-                         t_,
-                         roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::P_REL |
-                             roadmanager::Position::PosMode::R_REL);
-    double total_heading = GetAngleSum(pref.GetH(), heading_);
-    double u2, v2;
-    RotateVec2D(u_, v_, total_heading, u2, v2);
-
-    x = u2;
-    y = v2;
+    u = u_;
+    v = v_;
     z = zLocal_;
+}
+
+double OutlineCornerLocal::GetHeight() const
+{
+    return height_;
+}
+id_t OutlineCornerLocal::GetCornerId() const
+{
+    return cornerId_;
+}
+id_t OutlineCornerLocal::GetOriginalCornerId() const
+{
+    return originalCornerId_;
+}
+OutlineCorner::CornerType OutlineCornerLocal::GetCornerType() const
+{
+    return type_;
+}
+bool OutlineCornerLocal::IsPosCalculated() const
+{
+    return !(std::isnan(xPos_) && std::isnan(yPos_) && std::isnan(zPos_));
+}
+bool OutlineCornerLocal::IsPosLocalCalculated() const
+{
+    return !(std::isnan(xPosLocal_) && std::isnan(yPosLocal_) && std::isnan(zPosLocal_));
+}
+void OutlineCornerLocal::SetCornerId(id_t cornerId)
+{
+    cornerId_ = cornerId;
+}
+
+void Outline::GetCornersByIds(const std::vector<id_t>& cornerReferenceIds, std::vector<OutlineCorner*>& cornerReferences) const
+{
+    CornerIdManager   cornerIdManager(corner_);
+    std::vector<id_t> ids = cornerIdManager.getConsecutiveCornerIds(cornerReferenceIds);
+    // fetch the corner reference from corner id
+    for (const auto cornerReferenceId : ids)
+    {
+        auto it = std::find_if(corner_.begin(),
+                               corner_.end(),
+                               [&cornerReferenceId](const auto& corner) { return corner->GetOriginalCornerId() == cornerReferenceId; });
+        if (it != corner_.end())
+        {
+            cornerReferences.push_back(*it);
+        }
+    }
+}
+
+Outline::Outline(Outline&& other)
+{
+    corner_   = std::move(other.corner_);
+    fillType_ = other.fillType_;
+    id_       = other.id_;
+    closed_   = other.closed_;
+    roof_     = other.roof_;
+    scaleU_   = other.scaleU_;
+    scaleV_   = other.scaleV_;
+    scaleZ_   = other.scaleZ_;
+    other.corner_.clear();
+}
+
+Outline::~Outline()
+{
+    for (auto& corner : corner_)
+    {
+        delete (corner);
+    }
+    corner_.clear();
+}
+
+void Outline::AddCorner(OutlineCorner* outlineCorner)
+{
+    corner_.push_back(outlineCorner);
+}
+
+unsigned int Outline::GetNumberOfCorners() const
+{
+    return static_cast<unsigned int>(corner_.size());
+}
+
+OutlineCorner* roadmanager::Outline::GetCornerByIndex(size_t idx) const
+{
+    return corner_.at(idx);
+}
+
+std::vector<OutlineCorner*> roadmanager::Outline::GetCorners() const
+{
+    return corner_;
+}
+
+id_t roadmanager::Outline::GetId() const
+{
+    return id_;
+}
+
+bool Outline::IsClosed() const
+{
+    return closed_;
+}
+
+bool Outline::GetRoof() const
+{
+    return roof_;
+}
+
+void roadmanager::Outline::SetRoof(bool roof)
+{
+    roof_ = roof;
+}
+
+Outline::FillType roadmanager::Outline::GetFillType() const
+{
+    return fillType_;
+}
+
+void roadmanager::Outline::SetFillType(FillType fillType)
+{
+    fillType_ = fillType;
+}
+
+void Outline::SetScale(double scaleU, double scaleV, double scaleZ)
+{
+    scaleU_ = scaleU;
+    scaleV_ = scaleV;
+    scaleZ_ = scaleZ;
+}
+
+void Outline::GetScale(double& scaleU, double& scaleV, double& scaleZ) const
+{
+    scaleU = scaleU_;
+    scaleV = scaleV_;
+    scaleZ = scaleZ_;
+}
+
+void Outline::SetCountourType(ContourType contourType)
+{
+    contourType_ = contourType;
+}
+
+bool Outline::GetCountourType() const
+{
+    return contourType_;
+}
+
+void Outline::SetBoundingBoxFlag(bool bounding_box)
+{
+    bounding_box_ = bounding_box;
+}
+
+bool Outline::IsBoundingBox() const
+{
+    return bounding_box_;
+}
+
+std::vector<id_t> roadmanager::CornerIdManager::getConsecutiveCornerIds(const std::vector<id_t>& cornerReferenceIds) const
+{
+    std::vector<id_t> Ids;
+    std::vector<id_t> cornerIds = GetCornerIdFromOriginalCornerId(cornerReferenceIds);
+    if (cornerIds.size() > 0)
+    {
+        std::vector<id_t> sortedIds      = getSortIds(cornerIds);
+        std::vector<id_t> consecutiveIds = fillConsecutiveIds(sortedIds);
+
+        // now return th resolved corner reference ids in orginal from
+        for (const auto& id : consecutiveIds)
+        {
+            id_t orginalId = getOriginalCornerIdFromCornerId(id);
+            if (orginalId != ID_UNDEFINED)
+            {
+                Ids.push_back(orginalId);
+            }
+        }
+    }
+    return Ids;
+}
+
+id_t roadmanager::CornerIdManager::getMinId() const
+{
+    return min_id_;
+}
+
+id_t roadmanager::CornerIdManager::getMaxId() const
+{
+    return max_id_;
+}
+
+void roadmanager::CornerIdManager::UpdateMinMaxIds()
+{
+    // Find the minimum and maximum IDs across all outline
+    for (const auto& corner : corners_)
+    {
+        id_t id = corner->GetCornerId();
+        if (id < min_id_)
+            min_id_ = id;
+        if (id > max_id_)
+            max_id_ = id;
+    }
+}
+
+std::vector<id_t> roadmanager::CornerIdManager::GetCornerIdFromOriginalCornerId(const std::vector<id_t>& originalId) const
+{
+    std::vector<id_t> resolvedCornerReferenceIds;
+    for (const auto& id : originalId)
+    {
+        for (const auto& corner : corners_)
+        {
+            if (corner->GetOriginalCornerId() == id)
+            {
+                if (corner->GetOriginalCornerId() != ID_UNDEFINED)
+                {
+                    resolvedCornerReferenceIds.push_back(corner->GetCornerId());
+                    break;
+                }
+            }
+        }
+    }
+    return resolvedCornerReferenceIds;
+}
+
+id_t roadmanager::CornerIdManager::getOriginalCornerIdFromCornerId(id_t id) const
+{
+    auto it = std::find_if(corners_.begin(), corners_.end(), [&id](const auto& corner) { return corner->GetCornerId() == id; });
+    if (it != corners_.end())
+    {
+        return (*it)->GetOriginalCornerId();
+    }
+
+    return ID_UNDEFINED;
+}
+
+std::vector<id_t> roadmanager::CornerIdManager::getSortIds(const std::vector<id_t>& ids) const
+{
+    std::vector<id_t> sortedIds = ids;
+    // Switch values as small to large for each marking, but skip switch if it contains only max_id as start and min_id as end eg 3,0
+    if (sortedIds.size() == 2)
+    {
+        if ((sortedIds[0] != getMaxId() || sortedIds[1] != getMinId()) && sortedIds[0] > sortedIds[1])
+        {
+            std::swap(sortedIds[0], sortedIds[1]);
+        }
+    }
+    else
+    {
+        std::sort(sortedIds.begin(), sortedIds.end());
+        for (unsigned int i = 0; i < sortedIds.size() - 1; i++)  // check if any duplicate ids, then put marking all corner ids
+        {
+            if (sortedIds[i] == sortedIds[i + 1])
+            {
+                sortedIds = {sortedIds[i], sortedIds[i]};
+                break;
+            }
+        }
+    }
+    return sortedIds;
+}
+
+std::vector<id_t> roadmanager::CornerIdManager::fillConsecutiveIds(const std::vector<id_t>& ids) const
+{
+    std::vector<id_t> consecutive_cornerReferenceIds;
+    // Create new cornerReferenceIds between consecutive cornerReferenceIds
+    if (ids[0] == ids[ids.size() - 1])
+    {
+        id_t id = ids[0];
+        do
+        {
+            consecutive_cornerReferenceIds.push_back(id);
+            if (++id == corners_.size())
+            {
+                id = 0;
+            }
+        } while (id != ids[0]);
+        consecutive_cornerReferenceIds.push_back(ids[ids.size() - 1]);  // arrange as 0,1,2,3,0
+    }
+    else if ((ids.size() == 2 && ids[0] == getMaxId() && ids[ids.size() - 1] == getMinId()))
+    {
+        consecutive_cornerReferenceIds = ids;
+    }
+    else
+    {
+        for (unsigned int i = 0; i < ids.size() - 1; ++i)
+        {
+            // Add intermediate IDs
+            for (id_t j = ids[i]; j < ids[i + 1]; ++j)
+            {
+                consecutive_cornerReferenceIds.push_back(j);
+            }
+        }
+        consecutive_cornerReferenceIds.push_back(ids.back());
+    }
+    return consecutive_cornerReferenceIds;
+}
+
+OutlineCorner::CornerType Outline::GetCornerType() const
+{
+    if (corner_.size() > 0)
+    {
+        return corner_[0]->GetCornerType();
+    }
+
+    return OutlineCorner::CornerType::UNDEFINED;
+}
+
+const std::vector<OutlineCorner*>& Outline::GetRoadCorners() const
+{
+    return corner_;
 }
 
 roadmanager::RMObject::RMObject(double      s,
@@ -4846,7 +5221,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     double tc = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
                                     double dz = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
 
-                                    corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), idc, sc, tc, dz, heightc, s, t, heading));
+                                    corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), sc, tc, dz, heightc, s, t, heading, idc));
                                 }
                                 else if (!strcmp(corner_node.name(), "cornerLocal"))
                                 {
@@ -4855,7 +5230,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
 
                                     corner = static_cast<OutlineCorner*>(
-                                        new OutlineCornerLocal(r->GetId(), idc, obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
+                                        new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading, idc));
                                 }
                                 outline->AddCorner(corner);
                                 corner_counter++;
@@ -4871,10 +5246,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         double   hw      = width / 2.0;
                         double   h       = pos.GetHRoad() + heading;
                         printf("h %.2f\n", h);
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 0, s, t, -hl, -hw, 0.0, height, h));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 1, s, t, hl, -hw, 0.0, height, h));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 2, s, t, hl, hw, 0.0, height, h));
-                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), 3, s, t, -hl, hw, 0.0, height, h));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, -hl, -hw, 0.0, height, h, 0));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, hl, -hw, 0.0, height, h, 1));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, hl, hw, 0.0, height, h, 2));
+                        outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, -hl, hw, 0.0, height, h, 3));
 
                         outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
                         obj->AddOutline(outline);
@@ -6497,7 +6872,7 @@ Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
     }
     else
     {
-        outline->contourType_ = Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP;
+        outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
 
         const double max_segment_length = 10.0;
 
@@ -6538,14 +6913,14 @@ Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
                 double         w_local = w_start + factor * (w_end - w_start);
                 OutlineCorner* corner  = static_cast<OutlineCorner*>(
                     new OutlineCornerRoad(r->GetId(),
-                                          i * n_segments + j,
                                           rs + factor * rlength,
                                           rtStart + factor * (rtEnd - rtStart) + (i == 0 ? -w_local / 2.0 : w_local / 2.0),
                                           rzOffsetStart + factor * (rzOffsetEnd - rzOffsetStart),
                                           h_start + factor * (h_end - h_start),
                                           s,
                                           t,
-                                          heading));
+                                          heading,
+                                          i * n_segments + j));
 
                 outline->AddCorner(corner);
             }
@@ -7994,8 +8369,8 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                     if (outline != nullptr)
                     {
                         outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
-                        outline->roof_ = false;  // no top face on walls
-                        int side       = (i == 0) ? -1 : 1;
+                        outline->SetRoof(false);  // no top face on walls
+                        int side = (i == 0) ? -1 : 1;
 
                         for (unsigned int j = 0; j < 2; j++)  // add two points for each step, one for each side
                         {
@@ -8011,14 +8386,14 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                     tpoint_struct& p = tpoint[i][index];
 
                                     OutlineCorner* corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(road->GetId(),
-                                                                                                              j * steps + step,
                                                                                                               p.s,
                                                                                                               p.t + t_offset,
                                                                                                               0.0,
                                                                                                               TUNNEL_HEIGHT,
                                                                                                               0.0,
                                                                                                               0.0,
-                                                                                                              0.0));
+                                                                                                              0.0,
+                                                                                                              j * steps + step));
                                     outline->AddCorner(corner);
                                 }
                             }
@@ -8047,30 +8422,36 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                     }
                 }
 
-                // and the roof which covers the outer points of both walls
-                Outline* outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
-                outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
-                outline->roof_ = true;  // top face on tunnel roof
+                Outline* roof_outline = nullptr;
 
-                // starting with points along right side along tunnel, coming back left side
-                for (unsigned int i = 0; i < 2; i++)
+                if (rm_obj->GetOutline(0) != nullptr)
                 {
-                    int side = (i == 0) ? -1 : 1;
-                    for (unsigned int j = 0; rm_obj->GetOutline(0) && j < rm_obj->GetOutline(0)->corner_.size() / 2; j++)
+                    // and the roof which covers the outer points of both walls
+                    roof_outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    roof_outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
+                    roof_outline->SetRoof(true);  // top face on tunnel roof
+                    const std::vector<OutlineCorner*>& corners = rm_obj->GetOutline(0)->GetCorners();
+
+                    // starting with points along right side along tunnel, coming back left side
+                    for (unsigned int i = 0; i < 2; i++)
                     {
-                        unsigned int index     = (side == -1 ? j : (static_cast<unsigned int>(rm_obj->GetOutline(0)->corner_.size()) / 2 - (j + 1)));
-                        OutlineCornerRoad* tmp = static_cast<OutlineCornerRoad*>(rm_obj->GetOutline(0)->corner_[index]);
-                        OutlineCorner*     corner =
-                            static_cast<OutlineCorner*>(new OutlineCornerRoad(tmp->roadId_,
-                                                                              static_cast<id_t>(i * rm_obj->GetOutline(0)->corner_.size() / 2 + j),
-                                                                              tmp->s_,
-                                                                              tmp->t_ + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
-                                                                              TUNNEL_HEIGHT,
-                                                                              TUNNEL_ROOF_THICKNESS,
-                                                                              0.0,
-                                                                              0.0,
-                                                                              0.0));
-                        outline->AddCorner(corner);
+                        int side = (i == 0) ? -1 : 1;
+                        for (unsigned int j = 0; j < corners.size() / 2; j++)
+                        {
+                            unsigned int       index = (side == -1 ? j : (static_cast<unsigned int>(corners.size()) / 2 - (j + 1)));
+                            OutlineCornerRoad* tmp   = static_cast<OutlineCornerRoad*>(corners[index]);
+                            OutlineCorner*     corner =
+                                static_cast<OutlineCorner*>(new OutlineCornerRoad(tmp->GetRoadId(),
+                                                                                  tmp->GetS(),
+                                                                                  tmp->GetT() + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
+                                                                                  TUNNEL_HEIGHT,
+                                                                                  TUNNEL_ROOF_THICKNESS,
+                                                                                  0.0,
+                                                                                  0.0,
+                                                                                  0.0,
+                                                                                  static_cast<id_t>(i * corners.size() / 2 + j)));
+                            roof_outline->AddCorner(corner);
+                        }
                     }
                 }
 
@@ -8090,7 +8471,11 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                       road->GetGeometry(0)->GetY(),
                                       0.0,
                                       0.0);
-                rm_obj->AddOutline(outline);
+
+                if (roof_outline != nullptr)
+                {
+                    rm_obj->AddOutline(roof_outline);
+                }
 
                 RMObjectGroup rmgroup;
                 rmgroup.SetType(RMObjectGroup::ObjectType::BARRIER);
@@ -14631,22 +15016,4 @@ int Shape::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_t& inde
     }
 
     return -1;
-}
-
-Outline::CornerType roadmanager::Outline::GetCornerType() const
-{
-    {
-        if (corner_.size() > 0)
-        {
-            if (!strcmp(typeid(*corner_[0]).name(), "class roadmanager::OutlineCornerLocal"))
-            {
-                return CORNER_TYPE_LOCAL;
-            }
-            else
-            {
-                return CORNER_TYPE_ROAD;
-            }
-        }
-        return CORNER_TYPE_UNDEFINED;
-    }
 }

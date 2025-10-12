@@ -712,15 +712,16 @@ int OSIReporter::UpdateOSIStationaryObjectGroupODR(roadmanager::RMObjectGroup *o
                 roadmanager::Outline *outline = object->GetOutline(k);
                 if (outline)
                 {
-                    double height = 0;
-                    for (size_t l = 0; l < outline->corner_.size(); l++)
+                    double                                           height  = 0;
+                    const std::vector<roadmanager::OutlineCorner *> &corners = outline->GetCorners();
+                    for (size_t l = 0; l < corners.size(); l++)
                     {
                         double x, y, z;
-                        outline->corner_[l]->GetPosLocal(x, y, z);
+                        corners[l]->GetPosLocal(x, y, z);
                         osi3::Vector2d *vec = obj_osi_internal.sobj->mutable_base()->add_base_polygon();
                         vec->set_x(x);
                         vec->set_y(y);
-                        height += outline->corner_[l]->GetHeight() / static_cast<double>(outline->corner_.size());
+                        height += corners[l]->GetHeight() / static_cast<double>(corners.size());
                     }
                     // replace any previous height value with the average height of the outline corners
                     obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(height);

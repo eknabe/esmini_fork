@@ -1197,14 +1197,14 @@ namespace roadgeom
                             for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                             {
                                 roadmanager::Outline* outline = object->GetOutline(j);
-                                all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::Outline::CornerType::CORNER_TYPE_LOCAL);
+                                all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER);
 
                                 if (o == 0)
                                 {
                                     // create a model blueprint for potential reuse (if all outlines turns out to be made of local corners)
                                     tx_instance->addChild(CreateOutlineObject(outline, color, origin));
                                     tx_outline_original = tx_instance;  // use first object as original
-                                    all_outlines_local_corners &= outline->GetCornerType() == roadmanager::Outline::CornerType::CORNER_TYPE_LOCAL;
+                                    all_outlines_local_corners &= outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER;
                                 }
                                 else if (all_outlines_local_corners)
                                 {
@@ -1665,15 +1665,17 @@ namespace roadgeom
 
     osg::ref_ptr<osg::Group> RoadGeom::CreateOutlineObject(roadmanager::Outline* outline, osg::Vec4 color, const osg::Vec3d& origin)
     {
-        if (outline == 0)
+        if (outline == nullptr || outline->GetNumberOfCorners() == 0)
         {
             return nullptr;
         }
 
-        bool roof = outline->roof_ ? true : false;
+        const std::vector<roadmanager::OutlineCorner*>& corners = outline->GetCorners();
+
+        bool roof = outline->GetRoof() ? true : false;
 
         // nrPoints will be corners + 1 if the outline should be closed, reusing first corner as last
-        int nrPoints = outline->closed_ ? static_cast<int>(outline->corner_.size()) + 1 : static_cast<int>(outline->corner_.size());
+        unsigned int nrPoints = outline->IsClosed() ? corners.size() + 1 : corners.size();
 
         osg::ref_ptr<osg::Group> group = new osg::Group();
 
@@ -1688,10 +1690,10 @@ namespace roadgeom
 
         // Set vertices
         float cumulative_side_dist = 0.0f;
-        for (size_t i = 0; i < outline->corner_.size(); i++)
+        for (unsigned int i = 0; i < corners.size(); i++)
         {
             double                      x, y, z;
-            roadmanager::OutlineCorner* corner = outline->corner_[i];
+            roadmanager::OutlineCorner* corner = corners[i];
             corner->GetPos(x, y, z);
             (*vertices_sides)[i * 2 + 0].set(static_cast<float>(x - origin[0]),
                                              static_cast<float>(y - origin[1]),
@@ -1701,7 +1703,7 @@ namespace roadgeom
             if (i > 0)
             {
                 double x1, y1, z1;
-                outline->corner_[i - 1]->GetPos(x1, y1, z1);
+                corners[i - 1]->GetPos(x1, y1, z1);
                 float dx = x1 - x;
                 float dy = y1 - y;
                 cumulative_side_dist += std::sqrt(dx * dx + dy * dy);
@@ -1716,20 +1718,20 @@ namespace roadgeom
                 (*vertices_top)[i].set(static_cast<float>(x - origin[0]),
                                        static_cast<float>(y - origin[1]),
                                        static_cast<float>(z + corner->GetHeight()));
-                (*vertices_bottom)[outline->corner_.size() - 1 - i].set(static_cast<float>(x - origin[0]),
-                                                                        static_cast<float>(y - origin[1]),
-                                                                        static_cast<float>(z));
+                (*vertices_bottom)[corners.size() - 1 - i].set(static_cast<float>(x - origin[0]),
+                                                               static_cast<float>(y - origin[1]),
+                                                               static_cast<float>(z));
 
                 double x2, y2, z2;
-                outline->corner_[outline->corner_.size() - 1 - i]->GetPos(x2, y2, z2);
+                corners[corners.size() - 1 - i]->GetPos(x2, y2, z2);
                 float dx    = x2 - x;
                 float dy    = y2 - y;
                 float width = std::sqrt(dx * dx + dy * dy);
 
                 (*tex_coords_top)[i].set(0.0, cumulative_side_dist);
-                (*tex_coords_top)[outline->corner_.size() - 1 - i].set(width, cumulative_side_dist);
+                (*tex_coords_top)[corners.size() - 1 - i].set(width, cumulative_side_dist);
                 (*tex_coords_bottom)[i].set(0.0, cumulative_side_dist);
-                (*tex_coords_bottom)[outline->corner_.size() - 1 - i].set(width, cumulative_side_dist);
+                (*tex_coords_bottom)[corners.size() - 1 - i].set(width, cumulative_side_dist);
             }
         }
 
@@ -1737,21 +1739,21 @@ namespace roadgeom
         {
             float cumulative_roof_dist = 0.0f;
             // rearrange vertices for quad strip
-            for (size_t i = 0; i < outline->corner_.size(); i += 2)
+            for (unsigned int i = 0; i < corners.size(); i += 2)
             {
-                unsigned right_index = outline->corner_.size() - 1 - (i / 2);
+                unsigned right_index = corners.size() - 1 - (i / 2);
                 unsigned left_index  = i / 2;
 
                 double xl, yl, zl, xr, yr, zr;
-                outline->corner_[left_index]->GetPos(xl, yl, zl);
-                outline->corner_[right_index]->GetPos(xr, yr, zr);
+                corners[left_index]->GetPos(xl, yl, zl);
+                corners[right_index]->GetPos(xr, yr, zr);
 
                 (*vertices_top)[i].set(static_cast<float>(xr - origin[0]),
                                        static_cast<float>(yr - origin[1]),
-                                       static_cast<float>(zr + outline->corner_[right_index]->GetHeight()));
+                                       static_cast<float>(zr + corners[right_index]->GetHeight()));
                 (*vertices_top)[i + 1].set(static_cast<float>(xl - origin[0]),
                                            static_cast<float>(yl - origin[1]),
-                                           static_cast<float>(zl + outline->corner_[right_index]->GetHeight()));
+                                           static_cast<float>(zl + corners[right_index]->GetHeight()));
                 (*vertices_bottom)[i].set(static_cast<float>(xl - origin[0]), static_cast<float>(yl - origin[1]), static_cast<float>(zl));
                 (*vertices_bottom)[i + 1].set(static_cast<float>(xr - origin[0]), static_cast<float>(yr - origin[1]), static_cast<float>(zr));
 
@@ -1762,11 +1764,11 @@ namespace roadgeom
                 if (i >= 2)
                 {
                     unsigned left_index_prev  = (i - 1) / 2;
-                    unsigned right_index_prev = outline->corner_.size() - 1 - ((i - 2) / 2);
+                    unsigned right_index_prev = corners.size() - 1 - ((i - 2) / 2);
 
                     double xl_prev, yl_prev, zl_prev, xr_prev, yr_prev, zr_prev;
-                    outline->corner_[left_index_prev]->GetPos(xl_prev, yl_prev, zl_prev);
-                    outline->corner_[right_index_prev]->GetPos(xr_prev, yr_prev, zr_prev);
+                    corners[left_index_prev]->GetPos(xl_prev, yl_prev, zl_prev);
+                    corners[right_index_prev]->GetPos(xr_prev, yr_prev, zr_prev);
 
                     osg::Vec3f left_prev(xl_prev, yl_prev, zl_prev);
                     osg::Vec3f right_prev(xr_prev, yr_prev, zr_prev);
@@ -1785,7 +1787,7 @@ namespace roadgeom
         }
 
         // Close geometry
-        if (outline->closed_)
+        if (outline->IsClosed())
         {
             cumulative_side_dist += ((*vertices_sides)[0] - (*vertices_sides)[2 * (nrPoints - 2)]).length();
 

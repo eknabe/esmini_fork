@@ -1682,13 +1682,23 @@ namespace roadmanager
     class OutlineCorner
     {
     public:
-        virtual void   GetPos(double &x, double &y, double &z)      = 0;
-        virtual void   GetPosLocal(double &x, double &y, double &z) = 0;
-        virtual double GetHeight()                                  = 0;
-        OutlineCorner *GetCorner()
+        enum class CornerType
         {
-            return this;
-        }
+            ROAD_CORNER  = 0,
+            LOCAL_CORNER = 1,
+            UNDEFINED    = 2
+        };
+
+        virtual void       GetPos(double &x, double &y, double &z)      = 0;
+        virtual void       GetPosLocal(double &x, double &y, double &z) = 0;
+        virtual double     GetHeight() const                            = 0;
+        virtual id_t       GetCornerId() const                          = 0;
+        virtual id_t       GetOriginalCornerId() const                  = 0;
+        virtual CornerType GetCornerType() const                        = 0;
+        virtual bool       IsPosCalculated() const                      = 0;
+        virtual bool       IsPosLocalCalculated() const                 = 0;
+        virtual void       SetCornerId(id_t cornerId)                   = 0;
+
         virtual ~OutlineCorner()
         {
         }
@@ -1698,38 +1708,67 @@ namespace roadmanager
     {
     public:
         OutlineCornerRoad(id_t   roadId,
-                          id_t   cornerId,
                           double s,
                           double t,
                           double dz,
                           double height,
                           double center_s,
                           double center_t,
-                          double center_heading);
-        void   GetPos(double &x, double &y, double &z) override;
-        void   GetPosLocal(double &x, double &y, double &z) override;
-        double GetHeight()
-        {
-            return height_;
-        }
+                          double center_heading,
+                          id_t   cornerId);
 
-        id_t   roadId_, cornerId_;
-        double s_, t_, dz_, height_, center_s_, center_t_, center_heading_;
+        void       GetPos(double &x, double &y, double &z) override;
+        void       GetPosLocal(double &x, double &y, double &z) override;
+        double     GetHeight() const override;
+        id_t       GetCornerId() const override;
+        id_t       GetOriginalCornerId() const override;
+        CornerType GetCornerType() const override;
+        bool       IsPosCalculated() const override;
+        bool       IsPosLocalCalculated() const override;
+        void       SetCornerId(id_t cornerId) override;
+        id_t       GetRoadId() const;
+        double     GetS() const;
+        double     GetT() const;
+
+    private:
+        id_t                      roadId_;
+        double                    s_, t_, dz_, height_, center_s_, center_t_, center_heading_;
+        id_t                      cornerId_, originalCornerId_;
+        OutlineCorner::CornerType type_      = OutlineCorner::CornerType::ROAD_CORNER;
+        double                    xPos_      = std::nan("");
+        double                    yPos_      = std::nan("");
+        double                    zPos_      = std::nan("");
+        double                    xPosLocal_ = std::nan("");
+        double                    yPosLocal_ = std::nan("");
+        double                    zPosLocal_ = std::nan("");
     };
 
     class OutlineCornerLocal : public OutlineCorner
     {
     public:
-        OutlineCornerLocal(id_t roadId, id_t cornerId, double s, double t, double u, double v, double zLocal, double height, double heading);
-        void   GetPos(double &x, double &y, double &z) override;
-        void   GetPosLocal(double &x, double &y, double &z) override;
-        double GetHeight()
-        {
-            return height_;
-        }
+        OutlineCornerLocal(id_t roadId, double s, double t, double u, double v, double zLocal, double height, double heading, id_t cornerId);
 
-        id_t   roadId_, cornerId_;
-        double s_, t_, u_, v_, zLocal_, height_, heading_;
+        void       GetPos(double &x, double &y, double &z) override;
+        void       GetPosLocal(double &u, double &v, double &z) override;
+        double     GetHeight() const override;
+        id_t       GetCornerId() const override;
+        id_t       GetOriginalCornerId() const override;
+        CornerType GetCornerType() const override;
+        bool       IsPosCalculated() const override;
+        bool       IsPosLocalCalculated() const override;
+        void       SetCornerId(id_t cornerId) override;
+
+    private:
+        id_t                      roadId_;
+        double                    s_, t_, u_, v_, zLocal_, height_, heading_;
+        id_t                      cornerId_, originalCornerId_;
+        OutlineCorner::CornerType type_      = OutlineCorner::CornerType::LOCAL_CORNER;
+        double                    xPos_      = std::nan("");
+        double                    yPos_      = std::nan("");
+        double                    zPos_      = std::nan("");
+        double                    xPosLocal_ = std::nan("");
+        double                    yPosLocal_ = std::nan("");
+        double                    zPosLocal_ = std::nan("");
     };
 
     class Outline
@@ -1753,21 +1792,6 @@ namespace roadmanager
             CONTOUR_TYPE_QUAD_STRIP
         } ContourType;
 
-        typedef enum
-        {
-            CORNER_TYPE_UNDEFINED,
-            CORNER_TYPE_LOCAL,
-            CORNER_TYPE_ROAD
-        } CornerType;
-
-        id_t                         id_       = ID_UNDEFINED;
-        FillType                     fillType_ = FILL_TYPE_UNDEFINED;
-        bool                         closed_   = false;
-        bool                         roof_     = false;
-        std::vector<OutlineCorner *> corner_;
-        ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
-        bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)
-
         Outline(id_t id, FillType fillType, bool closed)
             : id_(id),
               fillType_(fillType),
@@ -1776,35 +1800,73 @@ namespace roadmanager
               bounding_box_(false)  // default consider as explicit outline
         {
         }
+        ~Outline();
+        // Move constructor
+        Outline(Outline &&other);
 
-        ~Outline()
-        {
-            for (size_t i = 0; i < corner_.size(); i++)
-                delete (corner_[i]);
-            corner_.clear();
-        }
+        id_t     GetId() const;
+        bool     IsClosed() const;
+        bool     GetRoof() const;
+        void     SetRoof(bool roof);
+        FillType GetFillType() const;
+        void     SetFillType(FillType fillType);
+        void     SetScale(double scaleU, double scaleV, double scaleZ);
+        void     GetScale(double &scaleU, double &scaleV, double &scaleZ) const;
 
-        void AddCorner(OutlineCorner *outlineCorner)
+        // get reference to the corners for given corner reference id.
+        void           GetCornersByIds(const std::vector<id_t> &cornerReferenceIds, std::vector<OutlineCorner *> &cornerReferences) const;
+        void           AddCorner(OutlineCorner *outlineCorner);
+        unsigned int   GetNumberOfCorners() const;
+        OutlineCorner *GetCornerByIndex(size_t idx) const;
+        std::vector<OutlineCorner *>        GetCorners() const;
+        void                                SetCountourType(ContourType contourType);
+        bool                                GetCountourType() const;
+        void                                SetBoundingBoxFlag(bool bounding_box);
+        bool                                IsBoundingBox() const;
+        OutlineCorner::CornerType           GetCornerType() const;
+        const std::vector<OutlineCorner *> &GetRoadCorners() const;
+
+    private:
+        id_t                         id_;
+        FillType                     fillType_;
+        bool                         closed_ = false;
+        bool                         roof_   = false;
+        double                       scaleU_ = std::nan("");
+        double                       scaleV_ = std::nan("");
+        double                       scaleZ_ = std::nan("");
+        std::vector<OutlineCorner *> corner_;
+        ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
+        bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)
+    };
+
+    class CornerIdManager
+    {
+    public:
+        CornerIdManager(const std::vector<OutlineCorner *> corners) : corners_(corners)
         {
-            corner_.push_back(outlineCorner);
+            UpdateMinMaxIds();
         }
-        void SetCountourType(ContourType contourType)
-        {
-            contourType_ = contourType;
-        }
-        bool GetCountourType() const
-        {
-            return contourType_;
-        }
-        void SetBoundingBoxFlag(bool bounding_box)
-        {
-            bounding_box_ = bounding_box;
-        }
-        bool IsBoundingBox() const
-        {
-            return bounding_box_;
-        }
-        CornerType GetCornerType() const;
+        // Get consecutive corner ids(sort and fill gaps) for given marking corner reference ids based on the outline
+        std::vector<id_t> getConsecutiveCornerIds(const std::vector<id_t> &cornerReferenceIds) const;
+
+    private:
+        const std::vector<OutlineCorner *> corners_;
+        id_t                               min_id_ = std::numeric_limits<id_t>::max();
+        id_t                               max_id_ = std::numeric_limits<id_t>::min();
+
+        // Helper methods:
+        // update min and max corner ids based on the outline corners internal corner ids
+        void UpdateMinMaxIds();
+        // get corner ids(index) from the corner reference ids
+        std::vector<id_t> GetCornerIdFromOriginalCornerId(const std::vector<id_t> &originalId) const;
+        // get corner reference ids(user provided) from the corner ids(index)
+        id_t getOriginalCornerIdFromCornerId(id_t id) const;
+        // get sorted corner ids based on the corner ids(index)
+        std::vector<id_t> getSortIds(const std::vector<id_t> &ids) const;
+        // fill gaps in the corner ids(index)
+        std::vector<id_t> fillConsecutiveIds(const std::vector<id_t> &ids) const;
+        id_t              getMinId() const;
+        id_t              getMaxId() const;
     };
 
     class ParkingSpace
