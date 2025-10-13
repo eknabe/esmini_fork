@@ -1166,6 +1166,7 @@ namespace roadgeom
                 }
 
                 osg::ref_ptr<osg::Group> outline_group = nullptr;  // container for all outlines of first object, to be reused for any repeats
+                bool                     all_outlines_local_corners = true;  // will affect if outline group can be cloned or not
 
                 for (unsigned int o = 0; o < object_group.GetNumberOfObjects(); o++)
                 {
@@ -1193,49 +1194,55 @@ namespace roadgeom
                         }
                         else
                         {
-                            bool all_outlines_local_corners = true;  // will affect if outline group can be cloned or not
-                            tx_instance                     = new osg::PositionAttitudeTransform;
+                            tx_instance = new osg::PositionAttitudeTransform;
 
                             for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
                             {
                                 roadmanager::Outline* outline = object->GetOutline(j);
-                                all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER);
 
                                 if (o == 0)
                                 {
+                                    // first repeat instance
                                     if (j == 0)
                                     {
                                         // for first outline of first object, create a group for potential reuse
                                         outline_group = new osg::Group;
                                         tx_instance->addChild(outline_group);
                                     }
-                                    // add all outlines
+                                    // add all outlines to the blueprint group
                                     outline_group->addChild(CreateOutlineObject(outline, color, origin));
-                                }
-                                else if (all_outlines_local_corners)
-                                {
-                                    // all corners local means compound outline group can be reused, shape will not depend on road
-                                    tx_instance->addChild(dynamic_cast<osg::Node*>(outline_group->clone(osg::CopyOp::SHALLOW_COPY)));
-                                    break;  // all outlines added by cloning the group
+                                    all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER);
                                 }
                                 else
                                 {
-                                    // road corner type requires unique instances
-                                    tx_instance->addChild(CreateOutlineObject(outline, color, origin));
+                                    if (all_outlines_local_corners)
+                                    {
+                                        // all corners local means compound outline group can be reused, shape will not depend on road
+                                        tx_instance->addChild(dynamic_cast<osg::Node*>(outline_group->clone(osg::CopyOp::SHALLOW_COPY)));
+                                        break;  // all outlines added by cloning the group
+                                    }
+                                    else
+                                    {
+                                        // road corner type requires unique instances
+                                        tx_instance->addChild(CreateOutlineObject(outline, color, origin));
+                                    }
                                 }
                             }
                         }
 
                         SetNodeName(*tx_instance, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(o));
 
-                        // scale model according to repeat definition
-                        tx_instance->setScale(osg::Vec3(object->GetRepeatInfo().scale_length,
-                                                        object->GetRepeatInfo().scale_width,
-                                                        object->GetRepeatInfo().scale_height));
-                        tx_instance->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+                        if (true)
+                        {
+                            // scale model according to repeat definition
+                            tx_instance->setScale(osg::Vec3(object->GetRepeatInfo().scale_length,
+                                                            object->GetRepeatInfo().scale_width,
+                                                            object->GetRepeatInfo().scale_height));
+                            tx_instance->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+                            tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetRepeatInfo().heading_offset, osg::Vec3(0, 0, 1)));
+                            tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ() + object->GetZOffset()));
+                        }
 
-                        tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ() + object->GetZOffset()));
-                        tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetRepeatInfo().heading_offset, osg::Vec3(0, 0, 1)));
                         objGroup->addChild(tx_instance);
 
                         if (object->GetNumberOfOutlines() > 0)
@@ -1701,7 +1708,15 @@ namespace roadgeom
         {
             double                      x, y, z;
             roadmanager::OutlineCorner* corner = corners[i];
-            corner->GetPosLocal(x, y, z);
+            if (corner->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER)
+            {
+                corner->GetPosLocal(x, y, z);
+            }
+            else
+            {
+                corner->GetPosLocal(x, y, z);
+            }
+            printf("corner %d: x=%.2f y=%.2f z=%.2f height=%.2f\n", i, x, y, z, corner->GetHeight());
             (*vertices_sides)[i * 2 + 0].set(static_cast<float>(x - origin[0]),
                                              static_cast<float>(y - origin[1]),
                                              static_cast<float>(z + corner->GetHeight()));
@@ -1710,7 +1725,14 @@ namespace roadgeom
             if (i > 0)
             {
                 double x1, y1, z1;
-                corners[i - 1]->GetPosLocal(x1, y1, z1);
+                if (corner->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER)
+                {
+                    corners[i - 1]->GetPosLocal(x1, y1, z1);
+                }
+                else
+                {
+                    corners[i - 1]->GetPosLocal(x1, y1, z1);
+                }
                 float dx = x1 - x;
                 float dy = y1 - y;
                 cumulative_side_dist += std::sqrt(dx * dx + dy * dy);
@@ -1730,7 +1752,14 @@ namespace roadgeom
                                                                static_cast<float>(z));
 
                 double x2, y2, z2;
-                corners[corners.size() - 1 - i]->GetPosLocal(x2, y2, z2);
+                if (corner->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER)
+                {
+                    corners[corners.size() - 1 - i]->GetPosLocal(x2, y2, z2);
+                }
+                else
+                {
+                    corners[corners.size() - 1 - i]->GetPosLocal(x2, y2, z2);
+                }
                 float dx    = x2 - x;
                 float dy    = y2 - y;
                 float width = std::sqrt(dx * dx + dy * dy);
@@ -1752,8 +1781,17 @@ namespace roadgeom
                 unsigned left_index  = i / 2;
 
                 double xl, yl, zl, xr, yr, zr;
-                corners[left_index]->GetPosLocal(xl, yl, zl);
-                corners[right_index]->GetPosLocal(xr, yr, zr);
+
+                if (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER)
+                {
+                    corners[left_index]->GetPosLocal(xl, yl, zl);
+                    corners[right_index]->GetPosLocal(xr, yr, zr);
+                }
+                else
+                {
+                    corners[left_index]->GetPosLocal(xl, yl, zl);
+                    corners[right_index]->GetPosLocal(xr, yr, zr);
+                }
 
                 (*vertices_top)[i].set(static_cast<float>(xr - origin[0]),
                                        static_cast<float>(yr - origin[1]),
@@ -1774,8 +1812,17 @@ namespace roadgeom
                     unsigned right_index_prev = corners.size() - 1 - ((i - 2) / 2);
 
                     double xl_prev, yl_prev, zl_prev, xr_prev, yr_prev, zr_prev;
-                    corners[left_index_prev]->GetPosLocal(xl_prev, yl_prev, zl_prev);
-                    corners[right_index_prev]->GetPosLocal(xr_prev, yr_prev, zr_prev);
+
+                    if (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER)
+                    {
+                        corners[left_index_prev]->GetPosLocal(xl_prev, yl_prev, zl_prev);
+                        corners[right_index_prev]->GetPosLocal(xr_prev, yr_prev, zr_prev);
+                    }
+                    else
+                    {
+                        corners[left_index_prev]->GetPosLocal(xl_prev, yl_prev, zl_prev);
+                        corners[right_index_prev]->GetPosLocal(xr_prev, yr_prev, zr_prev);
+                    }
 
                     osg::Vec3f left_prev(xl_prev, yl_prev, zl_prev);
                     osg::Vec3f right_prev(xr_prev, yr_prev, zr_prev);

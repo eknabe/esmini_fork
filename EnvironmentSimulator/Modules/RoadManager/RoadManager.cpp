@@ -2589,24 +2589,22 @@ void Road::AddTunnel(Tunnel* tunnel)
 }
 
 OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
+                                     double s_center,
+                                     double t_center,
+                                     double heading,
                                      double s,
                                      double t,
                                      double dz,
                                      double height,
-                                     double center_s,
-                                     double center_t,
-                                     double center_heading,
                                      id_t   cornerId)
     : roadId_(roadId),
-      s_(s),
-      t_(t),
+      ds_(s - s_center),
+      dt_(t - t_center),
       dz_(dz),
       height_(height),
-      center_s_(center_s),
-      center_t_(center_t),
-      center_heading_(center_heading),
       cornerId_(cornerId),
-      originalCornerId_(cornerId)
+      originalCornerId_(cornerId),
+      OutlineCorner(s_center, t_center, heading)
 {
 }
 
@@ -2621,7 +2619,7 @@ void OutlineCornerRoad::GetPos(double& x, double& y, double& z)
     else
     {
         roadmanager::Position pos;
-        pos.SetTrackPos(roadId_, s_, t_);
+        pos.SetTrackPos(roadId_, s_center_ + ds_, t_center_ + dt_);
         x     = pos.GetX();
         y     = pos.GetY();
         z     = pos.GetZ() + dz_;
@@ -2642,9 +2640,9 @@ void OutlineCornerRoad::GetPosLocal(double& x, double& y, double& z)
     else
     {
         roadmanager::Position pref;
-        pref.SetTrackPos(roadId_, center_s_, center_t_);
+        pref.SetTrackPos(roadId_, s_center_, t_center_);
         roadmanager::Position point;
-        point.SetTrackPos(roadId_, s_, t_);
+        point.SetTrackPos(roadId_, s_center_ + ds_, t_center_ + dt_);
         Global2LocalCoordinates(point.GetX(), point.GetY(), pref.GetX(), pref.GetY(), 0.0, x, y);
         z          = pref.GetZ() + dz_;
         xPosLocal_ = x;
@@ -2689,33 +2687,32 @@ id_t roadmanager::OutlineCornerRoad::GetRoadId() const
 
 double roadmanager::OutlineCornerRoad::GetS() const
 {
-    return s_;
+    return s_center_ + ds_;
 }
 
 double roadmanager::OutlineCornerRoad::GetT() const
 {
-    return t_;
+    return t_center_ + dt_;
 }
 
 OutlineCornerLocal::OutlineCornerLocal(id_t   roadId,
-                                       double s,
-                                       double t,
+                                       double s_center,
+                                       double t_center,
+                                       double heading,
                                        double u,
                                        double v,
                                        double zLocal,
                                        double height,
-                                       double heading,
                                        id_t   cornerId)
     : roadId_(roadId),
-      s_(s),
-      t_(t),
       u_(u),
       v_(v),
       zLocal_(zLocal),
       height_(height),
-      heading_(heading),
       cornerId_(cornerId),
-      originalCornerId_(cornerId)
+      originalCornerId_(cornerId),
+      OutlineCorner(s_center, t_center, heading)
+
 {
 }
 
@@ -2731,8 +2728,8 @@ void OutlineCornerLocal::GetPos(double& x, double& y, double& z)
     {
         roadmanager::Position pref;
         pref.SetTrackPosMode(roadId_,
-                             s_,
-                             t_,
+                             s_center_,
+                             t_center_,
                              roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::P_REL |
                                  roadmanager::Position::PosMode::R_REL);
         double total_heading = GetAngleSum(pref.GetH(), heading_);
@@ -5218,11 +5215,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                                 if (!strcmp(corner_node.name(), "cornerRoad"))
                                 {
-                                    double sc = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
-                                    double tc = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
-                                    double dz = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+                                    double s_corner = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                    double t_corner = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                    double dz       = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
 
-                                    corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), sc, tc, dz, heightc, s, t, heading, idc));
+                                    corner = static_cast<OutlineCorner*>(
+                                        new OutlineCornerRoad(r->GetId(), s, t, heading, s_corner + s_parameter, t_corner, dz, heightc, idc));
                                 }
                                 else if (!strcmp(corner_node.name(), "cornerLocal"))
                                 {
@@ -5230,8 +5228,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     double v      = ReadAttributeAsDouble(corner_node, "v", 0.0, true);
                                     double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
 
-                                    corner = static_cast<OutlineCorner*>(
-                                        new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading, idc));
+                                    corner =
+                                        static_cast<OutlineCorner*>(new OutlineCornerLocal(r->GetId(), s, t, u, v, zLocal, heightc, heading, idc));
                                 }
                                 outline->AddCorner(corner);
                                 corner_counter++;
