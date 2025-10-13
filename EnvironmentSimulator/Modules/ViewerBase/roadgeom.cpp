@@ -1165,6 +1165,8 @@ namespace roadgeom
                     }
                 }
 
+                osg::ref_ptr<osg::Group> outline_group = nullptr;  // container for all outlines of first object, to be reused for any repeats
+
                 for (unsigned int o = 0; o < object_group.GetNumberOfObjects(); o++)
                 {
                     roadmanager::RMObject*                       object      = object_group.GetObjects()[o];
@@ -1191,7 +1193,7 @@ namespace roadgeom
                         }
                         else
                         {
-                            bool all_outlines_local_corners = true;
+                            bool all_outlines_local_corners = true;  // will affect if outline group can be cloned or not
                             tx_instance                     = new osg::PositionAttitudeTransform;
 
                             for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
@@ -1201,16 +1203,20 @@ namespace roadgeom
 
                                 if (o == 0)
                                 {
-                                    // create a model blueprint for potential reuse (if all outlines turns out to be made of local corners)
-                                    tx_instance->addChild(CreateOutlineObject(outline, color, origin));
-                                    tx_outline_original = tx_instance;  // use first object as original
-                                    all_outlines_local_corners &= outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER;
+                                    if (j == 0)
+                                    {
+                                        // for first outline of first object, create a group for potential reuse
+                                        outline_group = new osg::Group;
+                                        tx_instance->addChild(outline_group);
+                                    }
+                                    // add all outlines
+                                    outline_group->addChild(CreateOutlineObject(outline, color, origin));
                                 }
                                 else if (all_outlines_local_corners)
                                 {
                                     // all corners local means compound outline group can be reused, shape will not depend on road
-                                    tx_instance->addChild(
-                                        dynamic_cast<osg::Node*>(tx_outline_original->getChild(0)->clone(osg::CopyOp::SHALLOW_COPY)));
+                                    tx_instance->addChild(dynamic_cast<osg::Node*>(outline_group->clone(osg::CopyOp::SHALLOW_COPY)));
+                                    break;  // all outlines added by cloning the group
                                 }
                                 else
                                 {
@@ -1228,7 +1234,6 @@ namespace roadgeom
                                                         object->GetRepeatInfo().scale_height));
                         tx_instance->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
 
-                        printf("x %.2f y %.2f\n", object->GetX(), object->GetY());
                         tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ() + object->GetZOffset()));
                         tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetRepeatInfo().heading_offset, osg::Vec3(0, 0, 1)));
                         objGroup->addChild(tx_instance);
