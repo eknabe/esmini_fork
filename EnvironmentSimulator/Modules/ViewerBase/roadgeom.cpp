@@ -1166,7 +1166,6 @@ namespace roadgeom
                 }
 
                 osg::ref_ptr<osg::Group> outline_group = nullptr;  // container for all outlines of first object, to be reused for any repeats
-                bool                     all_outlines_local_corners = true;  // will affect if outline group can be cloned or not
 
                 for (unsigned int o = 0; o < object_group.GetNumberOfObjects(); o++)
                 {
@@ -1211,11 +1210,10 @@ namespace roadgeom
                                     }
                                     // add all outlines to the blueprint group
                                     outline_group->addChild(CreateOutlineObject(outline, color, origin));
-                                    all_outlines_local_corners &= (outline->GetCornerType() == roadmanager::OutlineCorner::CornerType::LOCAL_CORNER);
                                 }
                                 else
                                 {
-                                    if (all_outlines_local_corners)
+                                    if (outline->AreAllCornersLocal())
                                     {
                                         // all corners local means compound outline group can be reused, shape will not depend on road
                                         tx_instance->addChild(dynamic_cast<osg::Node*>(outline_group->clone(osg::CopyOp::SHALLOW_COPY)));
@@ -1232,14 +1230,14 @@ namespace roadgeom
 
                         SetNodeName(*tx_instance, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(o));
 
-                        if (true)
+                        if (object_group.Clonable())
                         {
                             // scale model according to repeat definition
                             tx_instance->setScale(osg::Vec3(object->GetRepeatInfo().scale_length,
                                                             object->GetRepeatInfo().scale_width,
                                                             object->GetRepeatInfo().scale_height));
                             tx_instance->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
-                            tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetRepeatInfo().heading_offset, osg::Vec3(0, 0, 1)));
+                            tx_instance->setAttitude(osg::Quat(object->GetH() + object->GetHOffset(), osg::Vec3(0, 0, 1)));
                             tx_instance->setPosition(osg::Vec3(object->GetX(), object->GetY(), object->GetZ() + object->GetZOffset()));
                         }
 

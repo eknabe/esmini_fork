@@ -1834,12 +1834,11 @@ namespace roadmanager
         bool                                IsBoundingBox() const;
         OutlineCorner::CornerType           GetCornerType() const;
         const std::vector<OutlineCorner *> &GetRoadCorners() const;
+        bool                                AreAllCornersLocal() const;
+        void                                SetAllCornersLocalFlag(bool all_local_corners);
 
     private:
         id_t                         id_;
-        double                       s_center_;
-        double                       t_center_;
-        double                       heading_;
         FillType                     fillType_;
         bool                         closed_ = false;
         bool                         roof_   = false;
@@ -1849,6 +1848,7 @@ namespace roadmanager
         std::vector<OutlineCorner *> corner_;
         ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
         bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)
+        bool all_local_corners_ = true;  // indicates whether outline group can be cloned or not
     };
 
     class CornerIdManager
@@ -2070,7 +2070,6 @@ namespace roadmanager
             double scale_height   = 1.0;
             double scale_length   = 1.0;
             double scale_width    = 1.0;
-            double heading_offset = 0.0;
         };
 
         RMObject(double      s,
@@ -2308,6 +2307,8 @@ namespace roadmanager
         {
             return color_;
         }
+
+        bool               Clonable() const;
 
         static std::string Type2Str(ObjectType type);
         static ObjectType  Str2Type(std::string type);

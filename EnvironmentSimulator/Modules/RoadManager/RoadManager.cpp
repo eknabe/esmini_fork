@@ -2598,8 +2598,8 @@ OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
                                      double height,
                                      id_t   cornerId)
     : roadId_(roadId),
-      ds_(s - s_center),
-      dt_(t - t_center),
+      ds_(s),
+      dt_(t),
       dz_(dz),
       height_(height),
       cornerId_(cornerId),
@@ -3057,6 +3057,16 @@ const std::vector<OutlineCorner*>& Outline::GetRoadCorners() const
     return corner_;
 }
 
+bool roadmanager::Outline::AreAllCornersLocal() const
+{
+    return all_local_corners_;
+}
+
+void roadmanager::Outline::SetAllCornersLocalFlag(bool all_local_corners)
+{
+    all_local_corners_ = all_local_corners;
+}
+
 roadmanager::RMObject::RMObject(double      s,
                                 double      t,
                                 id_t        id,
@@ -3128,6 +3138,19 @@ void RMObjectGroup::SetType(ObjectType type)
         color_[2] = 0.4f;
         color_[3] = 1.0f;
     }
+}
+
+bool roadmanager::RMObjectGroup::Clonable() const
+{
+    for (auto& obj : objects_)
+    {
+        if (!obj->GetOutline(0)->AreAllCornersLocal())
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 std::string RMObjectGroup::Type2Str(RMObjectGroup::ObjectType type)
@@ -5148,7 +5171,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         repeat_info.scale_height   = height / MAX(rheightStart, SMALL_NUMBER);
                         repeat_info.scale_length   = length / MAX(rlengthStart, SMALL_NUMBER);
                         repeat_info.scale_width    = width / MAX(rwidthStart, SMALL_NUMBER);
-                        repeat_info.heading_offset = heading;
 
                         s_parameter += (rdistance > SMALL_NUMBER) ? rdistance : length;
 
@@ -5215,12 +5237,14 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                                 if (!strcmp(corner_node.name(), "cornerRoad"))
                                 {
-                                    double s_corner = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
-                                    double t_corner = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
-                                    double dz       = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+                                    outline->SetAllCornersLocalFlag(false);
+
+                                    double s_corner = repeat_info.scale_length * ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                    double t_corner = repeat_info.scale_width * ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                    double dz       = repeat_info.scale_height * ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
 
                                     corner = static_cast<OutlineCorner*>(
-                                        new OutlineCornerRoad(r->GetId(), s, t, heading, s_corner + s_parameter, t_corner, dz, heightc, idc));
+                                        new OutlineCornerRoad(r->GetId(), s, t, heading, s_corner, t_corner, dz, heightc, idc));
                                 }
                                 else if (!strcmp(corner_node.name(), "cornerLocal"))
                                 {
@@ -5229,7 +5253,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
 
                                     corner =
-                                        static_cast<OutlineCorner*>(new OutlineCornerLocal(r->GetId(), s, t, u, v, zLocal, heightc, heading, idc));
+                                        static_cast<OutlineCorner*>(new OutlineCornerLocal(r->GetId(), s, t, heading, u, v, zLocal, heightc, idc));
                                 }
                                 outline->AddCorner(corner);
                                 corner_counter++;
