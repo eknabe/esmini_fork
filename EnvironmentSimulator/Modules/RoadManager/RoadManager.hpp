@@ -1689,15 +1689,16 @@ namespace roadmanager
             UNDEFINED    = 2
         };
 
-        virtual void       GetPos(double &x, double &y, double &z)      = 0;
-        virtual void       GetPosLocal(double &x, double &y, double &z) = 0;
-        virtual double     GetHeight() const                            = 0;
-        virtual id_t       GetCornerId() const                          = 0;
-        virtual id_t       GetOriginalCornerId() const                  = 0;
-        virtual CornerType GetCornerType() const                        = 0;
-        virtual bool       IsPosCalculated() const                      = 0;
-        virtual bool       IsPosLocalCalculated() const                 = 0;
-        virtual void       SetCornerId(id_t cornerId)                   = 0;
+        virtual void       GetPos(double &x, double &y, double &z)                             = 0;
+        virtual void       GetPosLocal(double &x, double &y, double &z)                        = 0;
+        virtual double     GetHeight() const                                                   = 0;
+        virtual id_t       GetCornerId() const                                                 = 0;
+        virtual id_t       GetOriginalCornerId() const                                         = 0;
+        virtual CornerType GetCornerType() const                                               = 0;
+        virtual bool       IsPosCalculated() const                                             = 0;
+        virtual bool       IsPosLocalCalculated() const                                        = 0;
+        virtual void       SetCornerId(id_t cornerId)                                          = 0;
+        virtual void       Scale(double width_scale, double length_scale, double height_scale) = 0;
 
         OutlineCorner(double s_center, double t_center, double heading) : s_center_(s_center), t_center_(t_center), heading_(heading)
         {
@@ -1730,6 +1731,7 @@ namespace roadmanager
         id_t       GetRoadId() const;
         double     GetS() const;
         double     GetT() const;
+        void       Scale(double width_scale, double length_scale, double height_scale) override;
 
     private:
         id_t                      roadId_;
@@ -1766,6 +1768,7 @@ namespace roadmanager
         bool       IsPosCalculated() const override;
         bool       IsPosLocalCalculated() const override;
         void       SetCornerId(id_t cornerId) override;
+        void       Scale(double width_scale, double length_scale, double height_scale) override;
 
     private:
         id_t                      roadId_;
@@ -2183,6 +2186,11 @@ namespace roadmanager
         RepeatInfo &GetRepeatInfo()
         {
             return repeat_info_;
+        }
+        void CalculateDimensionsAndAdjustOutlines();
+        void SetOutlines(std::vector<Outline*>& outlines)
+        {
+            outlines_ = outlines;
         }
 
     private:

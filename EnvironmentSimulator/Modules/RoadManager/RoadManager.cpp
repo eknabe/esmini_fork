@@ -2695,6 +2695,13 @@ double roadmanager::OutlineCornerRoad::GetT() const
     return t_center_ + dt_;
 }
 
+void OutlineCornerRoad::Scale(double width_scale, double length_scale, double height_scale)
+{
+    ds_ *= length_scale;
+    dt_ *= width_scale;
+    height_ *= height_scale;
+}
+
 OutlineCornerLocal::OutlineCornerLocal(id_t   roadId,
                                        double s_center,
                                        double t_center,
@@ -2712,7 +2719,6 @@ OutlineCornerLocal::OutlineCornerLocal(id_t   roadId,
       cornerId_(cornerId),
       originalCornerId_(cornerId),
       OutlineCorner(s_center, t_center, heading)
-
 {
 }
 
@@ -2779,6 +2785,13 @@ bool OutlineCornerLocal::IsPosLocalCalculated() const
 void OutlineCornerLocal::SetCornerId(id_t cornerId)
 {
     cornerId_ = cornerId;
+}
+
+void OutlineCornerLocal::Scale(double width_scale, double length_scale, double height_scale)
+{
+    u_ *= length_scale;
+    v_ *= width_scale;
+    height_ *= height_scale;
 }
 
 void Outline::GetCornersByIds(const std::vector<id_t>& cornerReferenceIds, std::vector<OutlineCorner*>& cornerReferences) const
@@ -3097,6 +3110,67 @@ roadmanager::RMObject::RMObject(double      s,
       pitch_(pitch),
       roll_(roll)
 {
+}
+
+void roadmanager::RMObject::CalculateDimensionsAndAdjustOutlines()
+{
+    if (outlines_.empty())
+    {
+        // no outlines, keep current dimensions as is
+        return;
+    }
+
+    double x_min = LARGE_NUMBER;
+    double x_max = 0.0;
+    double y_min = LARGE_NUMBER;
+    double y_max = 0.0;
+    double height_max = 0.0;
+    double x, y, z, height = 0.0;
+
+    for (const auto& outline : outlines_)
+    {
+        for (auto* corner : outline->GetCorners())
+        {
+            corner->GetPosLocal(x, y, z);
+            if (x < x_min)
+            {
+                x_min = x;
+            }
+            if (x > x_max)
+            {
+                x_max = x;
+            }
+            if (y < y_min)
+            {
+                y_min = y;
+            }
+            if (y > y_max)
+            {
+                y_max = y;
+            }
+
+            height = corner->GetHeight();
+            if (height > height_max)
+            {
+                height_max = height;
+            }
+        }
+    }
+
+    double length_actual = x_max - x_min;
+    double width_actual  = y_max - y_min;
+    double height_actual = height_max;
+    double width_factor  = width_ / MAX(SMALL_NUMBER, width_actual);
+    double length_factor = length_ / MAX(SMALL_NUMBER, length_actual);
+    double height_factor = height_ / MAX(SMALL_NUMBER, height_actual);
+
+    for (const auto& outline : outlines_)
+    {
+        for (auto* corner : outline->GetCorners())
+        {
+            corner->Scale(width_factor, length_factor, height_factor);
+        }
+    }
 }
 
 RMObjectGroup::RMObjectGroup(std::string name, RMObjectGroup::ObjectType type) : name_(name)
@@ -5122,6 +5196,72 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 double rradiusStart  = 0.0;
                 double rradiusEnd    = 0.0;
 
+#if 1
+                // add any outlines
+                std::vector<Outline*> outlines;
+                pugi::xml_node       outlines_node = object.child("outlines");
+                if (!outlines_node)
+                {
+                    outlines_node = object;  // allow outline elements directly under object
+                }
+
+                if (outlines_node && outlines_node.child("outline"))
+                {
+                    for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
+                    {
+                        id_t         id             = ReadAttributeAsUnsignedInt(outline_node, "id", 0, false);
+                        bool         closed         = ReadAttributeAsBool(outline_node, "closed", false, false);
+                        Outline*     outline        = new Outline(id, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
+                        unsigned int corner_counter = 0;
+                        for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
+                        {
+                            OutlineCorner* corner  = 0;
+                            id_t           idc     = ReadAttributeAsUnsignedInt(corner_node, "id", corner_counter, false);
+                            double         heightc = ReadAttributeAsDouble(corner_node, "height", 0.0, true);
+
+                            if (!strcmp(corner_node.name(), "cornerRoad"))
+                            {
+                                outline->SetAllCornersLocalFlag(false);
+
+                                double s_corner = repeat_info.scale_length * ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                double t_corner = repeat_info.scale_width * ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                double dz       = repeat_info.scale_height * ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+
+                                corner = static_cast<OutlineCorner*>(
+                                    new OutlineCornerRoad(r->GetId(), s, t, heading, s_corner, t_corner, dz, heightc, idc));
+                            }
+                            else if (!strcmp(corner_node.name(), "cornerLocal"))
+                            {
+                                double u      = ReadAttributeAsDouble(corner_node, "u", 0.0, true);
+                                double v      = ReadAttributeAsDouble(corner_node, "v", 0.0, true);
+                                double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
+
+                                corner = static_cast<OutlineCorner*>(new OutlineCornerLocal(r->GetId(), s, t, heading, u, v, zLocal, heightc, idc));
+                            }
+                            outline->AddCorner(corner);
+                            corner_counter++;
+                        }
+                        outlines.push_back(outline);
+                    }
+                }
+                else
+                {
+                    // create outline for the generic bounding box
+                    Outline* outline = new Outline(ids, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    double   hl      = length / 2.0;
+                    double   hw      = width / 2.0;
+                    double   h       = pos.GetHRoad() + heading;
+                    printf("h %.2f\n", h);
+                    outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, -hl, -hw, 0.0, height, h, 0));
+                    outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, hl, -hw, 0.0, height, h, 1));
+                    outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, hl, hw, 0.0, height, h, 2));
+                    outline->AddCorner(new OutlineCornerLocal(r->GetId(), s, t, -hl, hw, 0.0, height, h, 3));
+
+                    outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
+                    outlines.push_back(outline);
+                }
+#endif
+
                 while (!done)
                 {
                     if (repeat_node)
@@ -5213,7 +5353,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                  pos.GetHRoad());
 
                     obj->GetRepeatInfo() = repeat_info;
-
+                    obj->SetOutlines(outlines);
+#if 0
                     // add any outlines
                     pugi::xml_node outlines_node = object.child("outlines");
                     if (!outlines_node)
@@ -5277,6 +5418,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
                         obj->AddOutline(outline);
                     }
+#endif
+
+                    // adjust dimensions now that the compound outline is known
+                    obj->CalculateDimensionsAndAdjustOutlines();
+
 
                     // finally add the object to the road
                     object_group.AddObject(obj);

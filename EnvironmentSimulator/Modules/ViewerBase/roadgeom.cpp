@@ -1712,7 +1712,7 @@ namespace roadgeom
             }
             else
             {
-                corner->GetPosLocal(x, y, z);
+                corner->GetPos(x, y, z);
             }
             printf("corner %d: x=%.2f y=%.2f z=%.2f height=%.2f\n", i, x, y, z, corner->GetHeight());
             (*vertices_sides)[i * 2 + 0].set(static_cast<float>(x - origin[0]),
@@ -1729,7 +1729,7 @@ namespace roadgeom
                 }
                 else
                 {
-                    corners[i - 1]->GetPosLocal(x1, y1, z1);
+                    corners[i - 1]->GetPos(x1, y1, z1);
                 }
                 float dx = x1 - x;
                 float dy = y1 - y;
@@ -1756,7 +1756,7 @@ namespace roadgeom
                 }
                 else
                 {
-                    corners[corners.size() - 1 - i]->GetPosLocal(x2, y2, z2);
+                    corners[corners.size() - 1 - i]->GetPos(x2, y2, z2);
                 }
                 float dx    = x2 - x;
                 float dy    = y2 - y;
@@ -1787,8 +1787,8 @@ namespace roadgeom
                 }
                 else
                 {
-                    corners[left_index]->GetPosLocal(xl, yl, zl);
-                    corners[right_index]->GetPosLocal(xr, yr, zr);
+                    corners[left_index]->GetPos(xl, yl, zl);
+                    corners[right_index]->GetPos(xr, yr, zr);
                 }
 
                 (*vertices_top)[i].set(static_cast<float>(xr - origin[0]),
@@ -1818,8 +1818,8 @@ namespace roadgeom
                     }
                     else
                     {
-                        corners[left_index_prev]->GetPosLocal(xl_prev, yl_prev, zl_prev);
-                        corners[right_index_prev]->GetPosLocal(xr_prev, yr_prev, zr_prev);
+                        corners[left_index_prev]->GetPos(xl_prev, yl_prev, zl_prev);
+                        corners[right_index_prev]->GetPos(xr_prev, yr_prev, zr_prev);
                     }
 
                     osg::Vec3f left_prev(xl_prev, yl_prev, zl_prev);
