@@ -1689,98 +1689,166 @@ namespace roadmanager
             UNDEFINED    = 2
         };
 
-        virtual void       GetPos(double &x, double &y, double &z)                             = 0;
-        virtual void       GetPosLocal(double &x, double &y, double &z)                        = 0;
-        virtual double     GetHeight() const                                                   = 0;
-        virtual id_t       GetCornerId() const                                                 = 0;
-        virtual id_t       GetOriginalCornerId() const                                         = 0;
-        virtual CornerType GetCornerType() const                                               = 0;
-        virtual bool       IsPosCalculated() const                                             = 0;
-        virtual bool       IsPosLocalCalculated() const                                        = 0;
-        virtual void       SetCornerId(id_t cornerId)                                          = 0;
-        virtual void       Scale(double width_scale, double length_scale, double height_scale) = 0;
-
-        OutlineCorner(double s_center, double t_center, double heading) : s_center_(s_center), t_center_(t_center), heading_(heading)
+        OutlineCorner(CornerType type, id_t cornerId, double height) : type_(type), cornerId_(cornerId), originalCornerId_(cornerId), height_(height)
         {
         }
 
-        virtual ~OutlineCorner()
+        virtual ~OutlineCorner() = 0
         {
+        }
+
+        virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) = 0;
+
+        int GetPos(double &x, double &y, double &z)
+        {
+            if (!IsPosCalculated())
+            {
+                return -1;
+            }
+
+            x = xPos_;
+            y = yPos_;
+            z = zPos_;
+
+            return 0;
+        }
+
+        int GetPosLocal(double &x, double &y, double &z)
+        {
+            if (!IsPosLocalCalculated())
+            {
+                return -1;
+            }
+
+            x = xPosLocal_;
+            y = yPosLocal_;
+            z = zPosLocal_;
+
+            return 0;
+        }
+
+        double GetHeight()
+        {
+            return height_;
+        }
+
+        id_t GetCornerId()
+        {
+            return cornerId_;
+        }
+
+        id_t GetOriginalCornerId()
+        {
+            return originalCornerId_;
+        }
+
+        CornerType GetCornerType()
+        {
+            return type_;
+        }
+
+        bool IsPosCalculated()
+        {
+            return !std::isnan(xPos_) && !std::isnan(yPos_) && !std::isnan(zPos_);
+        }
+
+        bool IsPosLocalCalculated()
+        {
+            return !std::isnan(xPosLocal_) && !std::isnan(yPosLocal_) && !std::isnan(zPosLocal_);
+        }
+
+        void SetCornerId(id_t cornerId)
+        {
+            cornerId_ = cornerId;
         }
 
     protected:
-        double s_center_ = 0.0;  // reference point s value of outline
-        double t_center_ = 0.0;  // reference point t value of outline
-        double heading_  = 0.0;
+        OutlineCorner::CornerType type_             = OutlineCorner::CornerType::UNDEFINED;
+        id_t                      cornerId_         = ID_UNDEFINED;
+        id_t                      originalCornerId_ = ID_UNDEFINED;
+        double                    height_           = std::nan("");
+        double                    xPos_             = std::nan("");
+        double                    yPos_             = std::nan("");
+        double                    zPos_             = std::nan("");
+        double                    xPosLocal_        = std::nan("");
+        double                    yPosLocal_        = std::nan("");
+        double                    zPosLocal_        = std::nan("");
     };
 
     class OutlineCornerRoad : public OutlineCorner
     {
     public:
-        OutlineCornerRoad(id_t roadId, double s_center, double t_center, double heading, double s, double t, double dz, double height, id_t cornerId);
+        OutlineCornerRoad(id_t cornerId, double ds, double dt, double dz, double height)
+            : OutlineCorner(OutlineCorner::CornerType::ROAD_CORNER, cornerId, height),
+              ds_(ds),
+              dt_(dt),
+              dz_(dz)
+        {
+        }
 
-        void       GetPos(double &x, double &y, double &z) override;
-        void       GetPosLocal(double &x, double &y, double &z) override;
-        double     GetHeight() const override;
-        id_t       GetCornerId() const override;
-        id_t       GetOriginalCornerId() const override;
-        CornerType GetCornerType() const override;
-        bool       IsPosCalculated() const override;
-        bool       IsPosLocalCalculated() const override;
-        void       SetCornerId(id_t cornerId) override;
-        id_t       GetRoadId() const;
-        double     GetS() const;
-        double     GetT() const;
-        void       Scale(double width_scale, double length_scale, double height_scale) override;
+        ~OutlineCornerRoad() override = default;
+
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override
+        {
+            Position pos;
+
+            // calculate global position
+            Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref + ds_, t_ref + dt_);
+            xPos_                       = pos.GetX();
+            yPos_                       = pos.GetY();
+            zPos_                       = pos.GetZ() + dz_;
+
+            // calculate local position
+            pos.SetTrackPos(road_id, s_ref, t_ref);
+            double x_tmp, y_tmp;
+            x_tmp      = xPos_ - pos.GetX();
+            y_tmp      = yPos_ - pos.GetY();
+            zPosLocal_ = zPos_ - pos.GetZ();
+
+            // rotate local position according to heading
+            RotateVec2D(x_tmp, y_tmp, -heading, xPosLocal_, yPosLocal_);
+        }
 
     private:
-        id_t                      roadId_;
-        double                    ds_, dt_, dz_, height_;
-        id_t                      cornerId_, originalCornerId_;
-        OutlineCorner::CornerType type_      = OutlineCorner::CornerType::ROAD_CORNER;
-        double                    xPos_      = std::nan("");
-        double                    yPos_      = std::nan("");
-        double                    zPos_      = std::nan("");
-        double                    xPosLocal_ = std::nan("");
-        double                    yPosLocal_ = std::nan("");
-        double                    zPosLocal_ = std::nan("");
+        double ds_;
+        double dt_;
+        double dz_;
     };
 
     class OutlineCornerLocal : public OutlineCorner
     {
     public:
-        OutlineCornerLocal(id_t   roadId,
-                           double s_center,
-                           double t_center,
-                           double heading,
-                           double u,
-                           double v,
-                           double zLocal,
-                           double height,
-                           id_t   cornerId);
+        OutlineCornerLocal(id_t cornerId, double u, double v, double z, double height)
+            : OutlineCorner(OutlineCorner::CornerType::LOCAL_CORNER, cornerId, height),
+              u_(u),
+              v_(v),
+              z_(z)
+        {
+        }
 
-        void       GetPos(double &x, double &y, double &z) override;
-        void       GetPosLocal(double &u, double &v, double &z) override;
-        double     GetHeight() const override;
-        id_t       GetCornerId() const override;
-        id_t       GetOriginalCornerId() const override;
-        CornerType GetCornerType() const override;
-        bool       IsPosCalculated() const override;
-        bool       IsPosLocalCalculated() const override;
-        void       SetCornerId(id_t cornerId) override;
-        void       Scale(double width_scale, double length_scale, double height_scale) override;
+        ~OutlineCornerLocal() override = default;
+
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override
+        {
+            Position pos;
+
+            // calculate global position
+            Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref, t_ref);
+            xPos_                       = pos.GetX();
+            yPos_                       = pos.GetY();
+            zPos_                       = pos.GetZ();
+
+            // calculate local position
+            double dx, dy;
+            RotateVec2D(u_, v_, heading, dx, dy);
+
+            xPosLocal_ = xPos_ + dx;
+            yPosLocal_ = yPos_ + dy;
+            zPosLocal_ = zPos_ + z_;
+        }
 
     private:
-        id_t                      roadId_;
-        double                    u_, v_, zLocal_, height_;
-        id_t                      cornerId_, originalCornerId_;
-        OutlineCorner::CornerType type_      = OutlineCorner::CornerType::LOCAL_CORNER;
-        double                    xPos_      = std::nan("");
-        double                    yPos_      = std::nan("");
-        double                    zPos_      = std::nan("");
-        double                    xPosLocal_ = std::nan("");
-        double                    yPosLocal_ = std::nan("");
-        double                    zPosLocal_ = std::nan("");
+        double u_, v_, z_;
     };
 
     class Outline
@@ -1824,6 +1892,8 @@ namespace roadmanager
         void     SetFillType(FillType fillType);
         void     SetScale(double scaleU, double scaleV, double scaleZ);
         void     GetScale(double &scaleU, double &scaleV, double &scaleZ) const;
+        int      GetDimensionLimits(double &x_min, double &x_max, double &y_min, double &y_max, double &height_max);
+        int      GetDimensions(double &dim_x, double &dim_y, double &dim_z);
 
         // get reference to the corners for given corner reference id.
         void           GetCornersByIds(const std::vector<id_t> &cornerReferenceIds, std::vector<OutlineCorner *> &cornerReferences) const;

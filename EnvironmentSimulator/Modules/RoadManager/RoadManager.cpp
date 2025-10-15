@@ -2782,17 +2782,6 @@ bool OutlineCornerLocal::IsPosLocalCalculated() const
 {
     return !(std::isnan(xPosLocal_) && std::isnan(yPosLocal_) && std::isnan(zPosLocal_));
 }
-void OutlineCornerLocal::SetCornerId(id_t cornerId)
-{
-    cornerId_ = cornerId;
-}
-
-void OutlineCornerLocal::Scale(double width_scale, double length_scale, double height_scale)
-{
-    u_ *= length_scale;
-    v_ *= width_scale;
-    height_ *= height_scale;
-}
 
 void Outline::GetCornersByIds(const std::vector<id_t>& cornerReferenceIds, std::vector<OutlineCorner*>& cornerReferences) const
 {
@@ -2895,6 +2884,64 @@ void Outline::GetScale(double& scaleU, double& scaleV, double& scaleZ) const
     scaleU = scaleU_;
     scaleV = scaleV_;
     scaleZ = scaleZ_;
+}
+
+int Outline::GetDimensionLimits(double& x_min, double& x_max, double& y_min, double& y_max, double& height_max)
+{
+    if (corner_.empty())
+    {
+        return -1;
+    }
+
+    for (auto* corner : corner_)
+    {
+        corner->GetPosLocal(x, y, z);
+        if (x < x_min)
+        {
+            x_min = x;
+        }
+        if (x > x_max)
+        {
+            x_max = x;
+        }
+        if (y < y_min)
+        {
+            y_min = y;
+        }
+        if (y > y_max)
+        {
+            y_max = y;
+        }
+
+        height = corner->GetHeight();
+        if (height > height_max)
+        {
+            height_max = height;
+        }
+    }
+
+    return 0;
+}
+
+int Outline::GetDimensions(double& dim_x, double& dim_y, double& dim_z)
+{
+    if (corner_.empty())
+    {
+        return -1;
+    }
+
+    double x_min, x_max, y_min, y_max, height_max;
+
+    if (GetDimensionLimits(x_min, x_max, y_min, y_max, height_max) != 0)
+    {
+        return -1;
+    }
+
+    dim_x = x_max - x_min;
+    dim_y = y_max - y_min;
+    dim_z = height_max;
+
+    return 0;
 }
 
 void Outline::SetCountourType(ContourType contourType)
