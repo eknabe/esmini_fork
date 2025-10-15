@@ -1697,7 +1697,7 @@ namespace roadmanager
         {
         }
 
-        virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) = 0;
+        virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) = 0;
 
         int GetPos(double &x, double &y, double &z)
         {
@@ -1788,26 +1788,7 @@ namespace roadmanager
 
         ~OutlineCornerRoad() override = default;
 
-        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override
-        {
-            Position pos;
-
-            // calculate global position
-            Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref + ds_, t_ref + dt_);
-            xPos_                       = pos.GetX();
-            yPos_                       = pos.GetY();
-            zPos_                       = pos.GetZ() + dz_;
-
-            // calculate local position
-            pos.SetTrackPos(road_id, s_ref, t_ref);
-            double x_tmp, y_tmp;
-            x_tmp      = xPos_ - pos.GetX();
-            y_tmp      = yPos_ - pos.GetY();
-            zPosLocal_ = zPos_ - pos.GetZ();
-
-            // rotate local position according to heading
-            RotateVec2D(x_tmp, y_tmp, -heading, xPosLocal_, yPosLocal_);
-        }
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) override;
 
     private:
         double ds_;
@@ -1828,24 +1809,7 @@ namespace roadmanager
 
         ~OutlineCornerLocal() override = default;
 
-        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override
-        {
-            Position pos;
-
-            // calculate global position
-            Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref, t_ref);
-            xPos_                       = pos.GetX();
-            yPos_                       = pos.GetY();
-            zPos_                       = pos.GetZ();
-
-            // calculate local position
-            double dx, dy;
-            RotateVec2D(u_, v_, heading, dx, dy);
-
-            xPosLocal_ = xPos_ + dx;
-            yPosLocal_ = yPos_ + dy;
-            zPosLocal_ = zPos_ + z_;
-        }
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) override;
 
     private:
         double u_, v_, z_;
@@ -1872,8 +1836,12 @@ namespace roadmanager
             CONTOUR_TYPE_QUAD_STRIP
         } ContourType;
 
-        Outline(id_t id, FillType fillType, bool closed)
+        Outline(id_t id, id_t road_id, double s, double t, double heading, FillType fillType, bool closed)
             : id_(id),
+              road_id_(road_id),
+              s_(s),
+              t_(t),
+              heading_(heading),
               fillType_(fillType),
               closed_(closed),
               roof_(closed),        // default put roof on closed outlines
@@ -1881,6 +1849,7 @@ namespace roadmanager
         {
         }
         ~Outline();
+
         // Move constructor
         Outline(Outline &&other);
 
@@ -1890,10 +1859,29 @@ namespace roadmanager
         void     SetRoof(bool roof);
         FillType GetFillType() const;
         void     SetFillType(FillType fillType);
-        void     SetScale(double scaleU, double scaleV, double scaleZ);
-        void     GetScale(double &scaleU, double &scaleV, double &scaleZ) const;
+
+        void SetScale(double scale_x, double scale_y, double scale_z)
+        {
+            scale_x_ = scale_x;
+            scale_y_ = scale_y;
+            scale_z_ = scale_z;
+        }
+
+        int GetScale(double& scale_x, double& scale_y, double& scale_z) const
+        {
+            if (scale_x_ == std::nan("") || scale_y_ == std::nan("") || scale_z_ == std::nan(""))
+            {
+                return -1;
+            }
+
+            scale_x = scale_x_;
+            scale_y = scale_y_;
+            scale_z = scale_z_;
+        }
+
         int      GetDimensionLimits(double &x_min, double &x_max, double &y_min, double &y_max, double &height_max);
         int      GetDimensions(double &dim_x, double &dim_y, double &dim_z);
+        void     CalculateCornerPositions();
 
         // get reference to the corners for given corner reference id.
         void           GetCornersByIds(const std::vector<id_t> &cornerReferenceIds, std::vector<OutlineCorner *> &cornerReferences) const;
@@ -1912,12 +1900,16 @@ namespace roadmanager
 
     private:
         id_t                         id_;
+        id_t                         road_id_;
         FillType                     fillType_;
         bool                         closed_ = false;
         bool                         roof_   = false;
-        double                       scaleU_ = std::nan("");
-        double                       scaleV_ = std::nan("");
-        double                       scaleZ_ = std::nan("");
+        double                       s_           = std::nan("");  // s position of the outline reference point
+        double                       t_           = std::nan("");  // t position of the outline reference point
+        double                       heading_     = std::nan("");  // heading of the outline, around reference point
+        double                       scale_x_ = std::nan("");      // object size scaling factor along local x axis (length)
+        double                       scale_y_ = std::nan("");      // object size scaling factor along local y axis (width)
+        double                       scale_z_ = std::nan("");      // object size scaling factor along local z axis (height)
         std::vector<OutlineCorner *> corner_;
         ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
         bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)
@@ -2257,11 +2249,12 @@ namespace roadmanager
         {
             return repeat_info_;
         }
-        void CalculateDimensionsAndAdjustOutlines();
         void SetOutlines(std::vector<Outline*>& outlines)
         {
             outlines_ = outlines;
         }
+
+        void AdjustOutlinesWrtObjectDimensions();
 
     private:
         std::string            name_;
