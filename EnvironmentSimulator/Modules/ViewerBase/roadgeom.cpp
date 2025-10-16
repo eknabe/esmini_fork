@@ -1172,7 +1172,7 @@ namespace roadgeom
                     roadmanager::RMObject*                       object      = object_group.GetObjects()[o];
                     osg::ref_ptr<osg::PositionAttitudeTransform> tx_instance = nullptr;
 
-                    if (object->GetNumberOfOutlines() == 0)
+                    if (object->GetOutlines().GetNumberOfOutlines() == 0)
                     {
                         LOG_ERROR("Unexpected: No outline defined for object {} with id {}", object->GetName(), object->GetId());
                     }
@@ -1195,9 +1195,9 @@ namespace roadgeom
                         {
                             tx_instance = new osg::PositionAttitudeTransform;
 
-                            for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
+                            for (size_t j = 0; j < static_cast<unsigned int>(object->GetOutlines().GetNumberOfOutlines()); j++)
                             {
-                                roadmanager::Outline* outline = object->GetOutline(j);
+                                roadmanager::Outline* outline = object->GetOutlines().GetOutline(j);
 
                                 if (o == 0)
                                 {
@@ -1243,10 +1243,10 @@ namespace roadgeom
 
                         objGroup->addChild(tx_instance);
 
-                        if (object->GetNumberOfOutlines() > 0)
+                        if (object->GetOutlines().GetNumberOfOutlines() > 0)
                         {
                             explicit_outline_created = true;
-                            LOG_DEBUG("Created {} outline geometries for object {}", object->GetNumberOfOutlines(), object->GetName());
+                            LOG_DEBUG("Created {} outline geometries for object {}", object->GetOutlines().GetNumberOfOutlines(), object->GetName());
                         }
                     }
                 }

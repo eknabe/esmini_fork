@@ -50,7 +50,7 @@
                 </Axles>
                 <Properties>
                     <Property name="model_id" value="2"/>
-                    <File filepath="../models/car_red.osgb"/>
+                    <File filepath="c:/eknabe1/GIT/esmini_dev/resources/models/car_red.osgb"/>
                 </Properties>
             </Vehicle>
         </ScenarioObject>

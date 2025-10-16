@@ -705,11 +705,11 @@ int OSIReporter::UpdateOSIStationaryObjectGroupODR(roadmanager::RMObjectGroup *o
         obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(object->GetPitch()));
         obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(object->GetH() + object->GetHOffset()));
 
-        if (object->GetNumberOfOutlines() > 0)
+        if (object->GetOutlines().GetNumberOfOutlines() > 0)
         {
-            for (unsigned int k = 0; k < object->GetNumberOfOutlines(); k++)
+            for (unsigned int k = 0; k < object->GetOutlines().GetNumberOfOutlines(); k++)
             {
-                roadmanager::Outline *outline = object->GetOutline(k);
+                roadmanager::Outline *outline = object->GetOutlines().GetOutline(k);
                 if (outline)
                 {
                     double                                           height  = 0;

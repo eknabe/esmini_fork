@@ -2745,9 +2745,9 @@ int Outline::GetDimensions(double& dim_x, double& dim_y, double& dim_z)
 
 void roadmanager::Outline::CalculateCornerPositions()
 {
-    for (auto& corner_ : corner_)
+    for (auto& corner : corner_)
     {
-        corner_->CalculatePositions(road_id_, s_, t_, heading_, scale_x, scale_y, scale_z);
+        corner->CalculatePositions(road_id_, s_, t_, heading_, scale_x_, scale_y_, scale_z_);
     }
 }
 
@@ -2968,12 +2968,12 @@ roadmanager::RMObject::RMObject(double      s,
 
 void roadmanager::RMObject::AdjustOutlinesWrtObjectDimensions()
 {
-    for (auto& outline : outlines_)
+    for (auto& outline : outlines_.GetOutlines())
     {
         double dim_x_, dim_y_, dim_z_;
         outline->GetDimensions(dim_x_, dim_y_, dim_z_);
         outline->SetScale(width_ / dim_x_, length_ / dim_y_, height_ / dim_z_);
-        outline->
+        outline->CalculateCornerPositions();
     }
 }
 
@@ -3022,7 +3022,7 @@ bool roadmanager::RMObjectGroup::Clonable() const
 {
     for (auto& obj : objects_)
     {
-        if (!obj->GetOutline(0)->AreAllCornersLocal())
+        if (!obj->GetOutlines().AllOutlinesLocalCorners())
         {
             return false;
         }
@@ -5000,10 +5000,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 double rradiusStart  = 0.0;
                 double rradiusEnd    = 0.0;
 
-#if 1
                 // add any outlines
-                std::vector<Outline*> outlines;
-                pugi::xml_node       outlines_node = object.child("outlines");
+                Outlines outlines;
+                pugi::xml_node        outlines_node = object.child("outlines");
                 if (!outlines_node)
                 {
                     outlines_node = object;  // allow outline elements directly under object
@@ -5027,9 +5026,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             {
                                 outline->SetAllCornersLocalFlag(false);
 
-                                double s_corner = repeat_info.scale_length * ReadAttributeAsDouble(corner_node, "s", 0.0, true);
-                                double t_corner = repeat_info.scale_width * ReadAttributeAsDouble(corner_node, "t", 0.0, true);
-                                double dz       = repeat_info.scale_height * ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+                                double s_corner = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                double t_corner = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                double dz       = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
 
                                 corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(idc, s_corner, t_corner, dz, heightc));
                             }
@@ -5044,13 +5043,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             outline->AddCorner(corner);
                             corner_counter++;
                         }
-                        outlines.push_back(outline);
+                        outlines.AddOutline(outline);
                     }
                 }
                 else
                 {
                     // create outline for the generic bounding box
-                    Outline* outline     = new Outline(ids, s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    Outline* outline     = new Outline(ids, r->GetId(), s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true);
                     double   half_length = length / 2.0;
                     double   half_width  = width / 2.0;
 
@@ -5060,9 +5059,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     outline->AddCorner(new OutlineCornerLocal(3, -half_length, half_width, 0.0, height));
 
                     outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
-                    outlines.push_back(outline);
+                    outlines.AddOutline(outline);
                 }
-#endif
+
+                // adjust dimensions now that the compound outline is known
+                outlines.CalculateDimensions(heading, width, length, height);
+
 
                 while (!done)
                 {
@@ -5221,10 +5223,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         obj->AddOutline(outline);
                     }
 #endif
-
-                    // adjust dimensions now that the compound outline is known
-                    obj->AdjustOutlinesWrtObjectDimensions();
-
 
                     // finally add the object to the road
                     object_group.AddObject(obj);
@@ -6835,7 +6833,7 @@ Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
                                                                double rzOffsetEnd)
 {
     // inter-distance is zero, treat as outline
-    Outline* outline = new Outline(ids, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+    Outline* outline = new Outline(ids, r->GetId(), s, t, heading, Outline::FillType::FILL_TYPE_UNDEFINED, true);
     if (outline == nullptr)
     {
         LOG_ERROR("Failed to create outline {}", ids);
@@ -6887,11 +6885,7 @@ Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
                                           rs + factor * rlength,
                                           rtStart + factor * (rtEnd - rtStart) + (i == 0 ? -w_local / 2.0 : w_local / 2.0),
                                           rzOffsetStart + factor * (rzOffsetEnd - rzOffsetStart),
-                                          h_start + factor * (h_end - h_start),
-                                          s,
-                                          t,
-                                          heading,
-                                          i * n_segments + j));
+                                          rheightStart + factor * (rheightEnd - rheightStart)));
 
                 outline->AddCorner(corner);
             }
@@ -8336,7 +8330,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                 // pick points for tessellation
                 for (unsigned int i = 0; i < 2; i++)
                 {
-                    Outline* outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    Outline* outline = new Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true);
                     if (outline != nullptr)
                     {
                         outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
@@ -8354,17 +8348,11 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                 {
                                     double t_offset = (side * wallside < 0) ? 0.0 : wallside * TUNNEL_WALL_THICKNESS;  // offset for wall side
 
-                                    tpoint_struct& p = tpoint[i][index];
-
                                     OutlineCorner* corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(road->GetId(),
-                                                                                                              p.s,
-                                                                                                              p.t + t_offset,
                                                                                                               0.0,
-                                                                                                              TUNNEL_HEIGHT,
+                                                                                                              t_offset,
                                                                                                               0.0,
-                                                                                                              0.0,
-                                                                                                              0.0,
-                                                                                                              j * steps + step));
+                                                                                                              TUNNEL_HEIGHT));
                                     outline->AddCorner(corner);
                                 }
                             }
@@ -8385,7 +8373,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                               road->GetGeometry(0)->GetY(),
                                               0.0,
                                               0.0);
-                        rm_obj->AddOutline(outline);
+                        rm_obj->GetOutlines().AddOutline(outline);
 
                         object_group[i].SetType(RMObjectGroup::ObjectType::BARRIER);
                         object_group[i].SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_WALL);
@@ -8395,13 +8383,13 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
 
                 Outline* roof_outline = nullptr;
 
-                if (rm_obj->GetOutline(0) != nullptr)
+                if (rm_obj->GetOutlines().GetOutline(0) != nullptr)
                 {
                     // and the roof which covers the outer points of both walls
-                    roof_outline = new Outline(tunnel->id_, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    roof_outline = new Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true);
                     roof_outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
                     roof_outline->SetRoof(true);  // top face on tunnel roof
-                    const std::vector<OutlineCorner*>& corners = rm_obj->GetOutline(0)->GetCorners();
+                    const std::vector<OutlineCorner*>& corners = rm_obj->GetOutlines().GetOutline(0)->GetCorners();
 
                     // starting with points along right side along tunnel, coming back left side
                     for (unsigned int i = 0; i < 2; i++)
@@ -8409,18 +8397,13 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                         int side = (i == 0) ? -1 : 1;
                         for (unsigned int j = 0; j < corners.size() / 2; j++)
                         {
-                            unsigned int       index = (side == -1 ? j : (static_cast<unsigned int>(corners.size()) / 2 - (j + 1)));
-                            OutlineCornerRoad* tmp   = static_cast<OutlineCornerRoad*>(corners[index]);
+                            //unsigned int       index = (side == -1 ? j : (static_cast<unsigned int>(corners.size()) / 2 - (j + 1)));
                             OutlineCorner*     corner =
-                                static_cast<OutlineCorner*>(new OutlineCornerRoad(tmp->GetRoadId(),
-                                                                                  tmp->GetS(),
-                                                                                  tmp->GetT() + (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
+                                static_cast<OutlineCorner*>(new OutlineCornerRoad(static_cast<id_t>(i * corners.size() + j),
+                                                                                  tunnel->s_,
+                                                                                  (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
                                                                                   TUNNEL_HEIGHT,
-                                                                                  TUNNEL_ROOF_THICKNESS,
-                                                                                  0.0,
-                                                                                  0.0,
-                                                                                  0.0,
-                                                                                  static_cast<id_t>(i * corners.size() / 2 + j)));
+                                                                                  TUNNEL_ROOF_THICKNESS));
                             roof_outline->AddCorner(corner);
                         }
                     }
@@ -8445,7 +8428,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
 
                 if (roof_outline != nullptr)
                 {
-                    rm_obj->AddOutline(roof_outline);
+                    rm_obj->GetOutlines().AddOutline(roof_outline);
                 }
 
                 RMObjectGroup rmgroup;
@@ -14990,7 +14973,7 @@ int Shape::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_t& inde
 }
 
 
-ADD SCALE TO BELOW FUNCTIONS
+// TODO: ADD SCALE TO BELOW FUNCTIONS
 
 void OutlineCornerRoad::CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z)
 {
@@ -15030,4 +15013,18 @@ void OutlineCornerLocal::CalculatePositions(id_t road_id, double s_ref, double t
     xPosLocal_ = xPos_ + dx;
     yPosLocal_ = yPos_ + dy;
     zPosLocal_ = zPos_ + z_;
+}
+
+Outlines::~Outlines()
+{
+    for (auto& Outline : outlines_)
+    {
+        delete Outline;
+    }
+    outlines_.clear();
+}
+
+void Outlines::CalculateDimensions(double ref_heading, double& length, double& width, double& height)
+{
+
 }

@@ -1259,6 +1259,8 @@ namespace roadmanager
         {
         }
 
+        ~RoadObject() = default;
+
         double GetX() const
         {
             return x_;
@@ -1916,6 +1918,59 @@ namespace roadmanager
         bool all_local_corners_ = true;  // indicates whether outline group can be cloned or not
     };
 
+    class Outlines
+    {
+    public:
+
+        Outlines() = default;
+        ~Outlines();
+
+        void AddOutline(Outline *outline)
+        {
+            outlines_.push_back(outline);
+        }
+
+        unsigned int GetNumberOfOutlines() const
+        {
+            return static_cast<unsigned int>(outlines_.size());
+        }
+
+        Outline *GetOutline(unsigned int i) const
+        {
+            return (i < outlines_.size()) ? outlines_[i] : 0;
+        }
+
+        std::vector<Outline *>& GetOutlines()
+        {
+            return outlines_;
+        }
+
+        void SetOutlines(std::vector<Outline *> &outlines)
+        {
+            outlines_ = outlines;
+        }
+
+        bool AllOutlinesLocalCorners() const
+        {
+            for (const auto &outline : outlines_)
+            {
+                if (!outline->AreAllCornersLocal())
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        void CalculateDimensions(double ref_heading, double &length, double &width, double &height);
+
+    private:
+        std::vector<Outline *> outlines_;
+        double                 width_;
+        double                 length_;
+        double                 height_;
+    };
+
     class CornerIdManager
     {
     public:
@@ -2154,12 +2209,7 @@ namespace roadmanager
                  double      z,
                  double      h);
 
-        ~RMObject()
-        {
-            for (size_t i = 0; i < outlines_.size(); i++)
-                delete (outlines_[i]);
-            outlines_.clear();
-        }
+        void AdjustOutlinesWrtObjectDimensions();
 
         std::string GetName() const
         {
@@ -2229,18 +2279,6 @@ namespace roadmanager
         {
             return orientation_;
         }
-        void AddOutline(Outline *outline)
-        {
-            outlines_.push_back(outline);
-        }
-        unsigned int GetNumberOfOutlines() const
-        {
-            return static_cast<unsigned int>(outlines_.size());
-        }
-        Outline *GetOutline(unsigned int i) const
-        {
-            return (i < outlines_.size()) ? outlines_[i] : 0;
-        }
         ParkingSpace GetParkingSpace() const
         {
             return parking_space_;
@@ -2249,12 +2287,15 @@ namespace roadmanager
         {
             return repeat_info_;
         }
-        void SetOutlines(std::vector<Outline*>& outlines)
+        Outlines &GetOutlines()
+        {
+            return outlines_;
+        }
+
+        void SetOutlines(const Outlines &outlines)
         {
             outlines_ = outlines;
         }
-
-        void AdjustOutlinesWrtObjectDimensions();
 
     private:
         std::string            name_;
@@ -2269,8 +2310,8 @@ namespace roadmanager
         double                 heading_;
         double                 pitch_;
         double                 roll_;
-        std::vector<Outline *> outlines_;
         ParkingSpace           parking_space_;
+        Outlines               outlines_;
         RepeatInfo             repeat_info_;
     };
 
