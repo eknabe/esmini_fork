@@ -1962,13 +1962,13 @@ namespace roadmanager
             return true;
         }
 
-        void CalculateDimensions(double ref_heading, double &length, double &width, double &height);
+        void CalculateDimensions(double ref_heading);
 
     private:
         std::vector<Outline *> outlines_;
-        double                 width_;
-        double                 length_;
-        double                 height_;
+        double                 width_ = std::nan("");
+        double                 length_ = std::nan("");
+        double                 height_ = std::nan("");
     };
 
     class CornerIdManager
@@ -2209,6 +2209,8 @@ namespace roadmanager
                  double      z,
                  double      h);
 
+        ~RMObject() = default;
+
         void AdjustOutlinesWrtObjectDimensions();
 
         std::string GetName() const
@@ -2363,6 +2365,15 @@ namespace roadmanager
 
         ~RMObjectGroup()
         {
+            // remove outlines only for first object
+            if (objects_.size() > 0)
+            {
+                for (auto &outline : objects_[0]->GetOutlines().GetOutlines())
+                {
+                    delete outline;
+                }
+            }
+
             for (auto &object : objects_)
             {
                 delete object;

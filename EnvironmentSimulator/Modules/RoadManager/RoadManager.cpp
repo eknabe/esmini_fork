@@ -2621,10 +2621,10 @@ Outline::Outline(Outline&& other)
 
 Outline::~Outline()
 {
-    for (auto& corner : corner_)
-    {
-        delete (corner);
-    }
+    // intentially not deleting the corners, as they might be shared
+    // it's the responsibility of the owning object to delete them
+    // just clear the vector itself
+
     corner_.clear();
 }
 
@@ -5063,7 +5063,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 }
 
                 // adjust dimensions now that the compound outline is known
-                outlines.CalculateDimensions(heading, width, length, height);
+                outlines.CalculateDimensions(heading);
 
 
                 while (!done)
@@ -14980,7 +14980,7 @@ void OutlineCornerRoad::CalculatePositions(id_t road_id, double s_ref, double t_
     Position pos;
 
     // calculate global position
-    Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref + ds_, t_ref + dt_);
+    pos.SetTrackPos(road_id, s_ref + ds_, t_ref + dt_);
     xPos_                       = pos.GetX();
     yPos_                       = pos.GetY();
     zPos_                       = pos.GetZ() + dz_;
@@ -15001,7 +15001,7 @@ void OutlineCornerLocal::CalculatePositions(id_t road_id, double s_ref, double t
     Position pos;
 
     // calculate global position
-    Position::ReturnCode retval = pos.SetTrackPos(road_id, s_ref, t_ref);
+    pos.SetTrackPos(road_id, s_ref, t_ref);
     xPos_                       = pos.GetX();
     yPos_                       = pos.GetY();
     zPos_                       = pos.GetZ();
@@ -15017,14 +15017,54 @@ void OutlineCornerLocal::CalculatePositions(id_t road_id, double s_ref, double t
 
 Outlines::~Outlines()
 {
-    for (auto& Outline : outlines_)
-    {
-        delete Outline;
-    }
+    // intentially not deleting the outlines, as they might be shared
+    // it's the responsibility of the owning object to delete them
+    // just clear the vector itself
     outlines_.clear();
 }
 
-void Outlines::CalculateDimensions(double ref_heading, double& length, double& width, double& height)
+void Outlines::CalculateDimensions(double ref_heading)
 {
+    double x_min_global      = LARGE_NUMBER;
+    double x_max_global      = 0.0;
+    double y_min_global      = LARGE_NUMBER;
+    double y_max_global      = 0.0;
+    double height_max_global = 0.0;
+    double x_min             = LARGE_NUMBER;
+    double x_max             = 0.0;
+    double y_min             = LARGE_NUMBER;
+    double y_max             = 0.0;
+    double height_max        = 0.0;
 
+    for (auto& outline : outlines_)
+    {
+        outline->CalculateCornerPositions();
+        outline->GetDimensionLimits(x_min, x_max, y_min, y_max, height_max);
+
+        if (x_min < x_min_global)
+        {
+            x_min_global = x_min;
+        }
+        if (x_max > x_max_global)
+        {
+            x_max_global = x_max;
+        }
+        if (y_min < y_min_global)
+        {
+            y_min_global = y_min;
+        }
+        if (y_max > y_max_global)
+        {
+            y_max_global = y_max;
+        }
+
+        if (height_max > height_max_global)
+        {
+            height_max_global = height_max;
+        }
+    }
+
+    length_ = x_max_global - x_min_global;
+    width_  = y_max_global - y_min_global;
+    height_ = height_max_global;
 }
