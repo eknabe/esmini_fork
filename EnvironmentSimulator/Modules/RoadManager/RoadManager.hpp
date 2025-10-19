@@ -1852,9 +1852,6 @@ namespace roadmanager
         }
         ~Outline();
 
-        // Move constructor
-        Outline(Outline &&other);
-
         id_t     GetId() const;
         bool     IsClosed() const;
         bool     GetRoof() const;
@@ -1925,7 +1922,12 @@ namespace roadmanager
         Outlines() = default;
         ~Outlines();
 
-        void AddOutline(Outline *outline)
+        void AddOutline(Outline& outline)
+        {
+            outlines_.push_back(outline);
+        }
+
+        void AddOutline(Outline outline)
         {
             outlines_.push_back(outline);
         }
@@ -1935,17 +1937,17 @@ namespace roadmanager
             return static_cast<unsigned int>(outlines_.size());
         }
 
-        Outline *GetOutline(unsigned int i) const
+        Outline *GetOutline(unsigned int i)
         {
-            return (i < outlines_.size()) ? outlines_[i] : 0;
+            return (i < outlines_.size()) ? &outlines_[i] : nullptr;
         }
 
-        std::vector<Outline *>& GetOutlines()
+        std::vector<Outline>& GetOutlines()
         {
             return outlines_;
         }
 
-        void SetOutlines(std::vector<Outline *> &outlines)
+        void SetOutlines(std::vector<Outline> &outlines)
         {
             outlines_ = outlines;
         }
@@ -1954,7 +1956,7 @@ namespace roadmanager
         {
             for (const auto &outline : outlines_)
             {
-                if (!outline->AreAllCornersLocal())
+                if (!outline.AreAllCornersLocal())
                 {
                     return false;
                 }
@@ -1965,7 +1967,7 @@ namespace roadmanager
         void CalculateDimensions(double ref_heading);
 
     private:
-        std::vector<Outline *> outlines_;
+        std::vector<Outline> outlines_;
         double                 width_ = std::nan("");
         double                 length_ = std::nan("");
         double                 height_ = std::nan("");
@@ -2370,7 +2372,10 @@ namespace roadmanager
             {
                 for (auto &outline : objects_[0]->GetOutlines().GetOutlines())
                 {
-                    delete outline;
+                    for (auto &corner : outline.GetCorners())
+                    {
+                        delete corner;
+                    }
                 }
             }
 

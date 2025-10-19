@@ -2605,20 +2605,6 @@ void Outline::GetCornersByIds(const std::vector<id_t>& cornerReferenceIds, std::
     }
 }
 
-Outline::Outline(Outline&& other)
-{
-    corner_      = std::move(other.corner_);
-    contourType_ = other.contourType_;
-    id_          = other.id_;
-    closed_      = other.closed_;
-    roof_        = other.roof_;
-    fillType_    = other.fillType_;
-    scale_x_     = other.scale_x_;
-    scale_y_     = other.scale_y_;
-    scale_z_     = other.scale_z_;
-    other.corner_.clear();
-}
-
 Outline::~Outline()
 {
     // intentially not deleting the corners, as they might be shared
@@ -2971,9 +2957,9 @@ void roadmanager::RMObject::AdjustOutlinesWrtObjectDimensions()
     for (auto& outline : outlines_.GetOutlines())
     {
         double dim_x_, dim_y_, dim_z_;
-        outline->GetDimensions(dim_x_, dim_y_, dim_z_);
-        outline->SetScale(width_ / dim_x_, length_ / dim_y_, height_ / dim_z_);
-        outline->CalculateCornerPositions();
+        outline.GetDimensions(dim_x_, dim_y_, dim_z_);
+        outline.SetScale(width_ / dim_x_, length_ / dim_y_, height_ / dim_z_);
+        outline.CalculateCornerPositions();
     }
 }
 
@@ -5014,7 +5000,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     {
                         id_t         id             = ReadAttributeAsUnsignedInt(outline_node, "id", 0, false);
                         bool         closed         = ReadAttributeAsBool(outline_node, "closed", false, false);
-                        Outline*     outline        = new Outline(id, r->GetId(), s, t, heading, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
+                        outlines.AddOutline(Outline(id, r->GetId(), s, t, heading, Outline::FillType::FILL_TYPE_UNDEFINED, closed));
+                        Outline*     outline        = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
                         unsigned int corner_counter = 0;
                         for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
                         {
@@ -5043,13 +5030,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             outline->AddCorner(corner);
                             corner_counter++;
                         }
-                        outlines.AddOutline(outline);
                     }
                 }
                 else
                 {
                     // create outline for the generic bounding box
-                    Outline* outline     = new Outline(ids, r->GetId(), s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    outlines.AddOutline(Outline(ids, r->GetId(), s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true));
+                    Outline* outline     = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
                     double   half_length = length / 2.0;
                     double   half_width  = width / 2.0;
 
@@ -5059,12 +5046,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     outline->AddCorner(new OutlineCornerLocal(3, -half_length, half_width, 0.0, height));
 
                     outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
-                    outlines.AddOutline(outline);
                 }
 
                 // adjust dimensions now that the compound outline is known
                 outlines.CalculateDimensions(heading);
-
 
                 while (!done)
                 {
@@ -5157,7 +5142,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                  pos.GetHRoad());
 
                     obj->GetRepeatInfo() = repeat_info;
-                    obj->SetOutlines(outlines);
+                    Outlines outlines_instance = outlines;
+                    obj->SetOutlines(outlines_instance);
 #if 0
                     // add any outlines
                     pugi::xml_node outlines_node = object.child("outlines");
@@ -8330,7 +8316,27 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                 // pick points for tessellation
                 for (unsigned int i = 0; i < 2; i++)
                 {
-                    Outline* outline = new Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true);
+                    rm_obj           = new RMObject(tunnel->s_,
+                                          0.0,
+                                          tunnel->id_,
+                                          tunnel->name_,
+                                          RoadObject::Orientation(),
+                                          0.0,
+                                          tunnel->length_,
+                                          TUNNEL_HEIGHT,
+                                          tunnel->width_,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          road->GetGeometry(0)->GetX(),
+                                          road->GetGeometry(0)->GetY(),
+                                          0.0,
+                                          0.0);
+
+                    rm_obj->GetOutlines().AddOutline(
+                        Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true));
+                    Outline* outline = rm_obj->GetOutlines().GetOutline(rm_obj->GetOutlines().GetNumberOfOutlines() - 1);
+
                     if (outline != nullptr)
                     {
                         outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
@@ -8357,23 +8363,6 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                 }
                             }
                         }
-                        rm_obj = new RMObject(tunnel->s_,
-                                              0.0,
-                                              tunnel->id_,
-                                              tunnel->name_,
-                                              RoadObject::Orientation(),
-                                              0.0,
-                                              tunnel->length_,
-                                              TUNNEL_HEIGHT,
-                                              tunnel->width_,
-                                              0.0,
-                                              0.0,
-                                              0.0,
-                                              road->GetGeometry(0)->GetX(),
-                                              road->GetGeometry(0)->GetY(),
-                                              0.0,
-                                              0.0);
-                        rm_obj->GetOutlines().AddOutline(outline);
 
                         object_group[i].SetType(RMObjectGroup::ObjectType::BARRIER);
                         object_group[i].SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_WALL);
@@ -8381,10 +8370,29 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                     }
                 }
 
-                Outline* roof_outline = nullptr;
-
                 if (rm_obj->GetOutlines().GetOutline(0) != nullptr)
                 {
+                    rm_obj = new RMObject(tunnel->s_,
+                                          0.0,
+                                          tunnel->id_,
+                                          tunnel->name_,
+                                          RoadObject::Orientation(),
+                                          0.0,
+                                          tunnel->length_,
+                                          TUNNEL_HEIGHT,
+                                          tunnel->width_,
+                                          0.0,
+                                          0.0,
+                                          0.0,
+                                          road->GetGeometry(0)->GetX(),
+                                          road->GetGeometry(0)->GetY(),
+                                          0.0,
+                                          0.0);
+
+                    rm_obj->GetOutlines().AddOutline(
+                        Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true));
+                    Outline* roof_outline = rm_obj->GetOutlines().GetOutline(rm_obj->GetOutlines().GetNumberOfOutlines());
+
                     // and the roof which covers the outer points of both walls
                     roof_outline = new Outline(tunnel->id_, road->GetId(), tunnel->s_, 0.0, 0.0, Outline::FillType::FILL_TYPE_UNDEFINED, true);
                     roof_outline->SetCountourType(Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP);
@@ -8397,50 +8405,27 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                         int side = (i == 0) ? -1 : 1;
                         for (unsigned int j = 0; j < corners.size() / 2; j++)
                         {
-                            //unsigned int       index = (side == -1 ? j : (static_cast<unsigned int>(corners.size()) / 2 - (j + 1)));
-                            OutlineCorner*     corner =
-                                static_cast<OutlineCorner*>(new OutlineCornerRoad(static_cast<id_t>(i * corners.size() + j),
-                                                                                  tunnel->s_,
-                                                                                  (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
-                                                                                  TUNNEL_HEIGHT,
-                                                                                  TUNNEL_ROOF_THICKNESS));
+                            // unsigned int       index = (side == -1 ? j : (static_cast<unsigned int>(corners.size()) / 2 - (j + 1)));
+                            OutlineCorner* corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(static_cast<id_t>(i * corners.size() + j),
+                                                                                                      tunnel->s_,
+                                                                                                      (side == 1 ? TUNNEL_WALL_THICKNESS : 0.0),
+                                                                                                      TUNNEL_HEIGHT,
+                                                                                                      TUNNEL_ROOF_THICKNESS));
                             roof_outline->AddCorner(corner);
                         }
                     }
-                }
 
-                rm_obj = new RMObject(tunnel->s_,
-                                      0.0,
-                                      tunnel->id_,
-                                      tunnel->name_,
-                                      RoadObject::Orientation(),
-                                      0.0,
-                                      tunnel->length_,
-                                      TUNNEL_HEIGHT,
-                                      tunnel->width_,
-                                      0.0,
-                                      0.0,
-                                      0.0,
-                                      road->GetGeometry(0)->GetX(),
-                                      road->GetGeometry(0)->GetY(),
-                                      0.0,
-                                      0.0);
+                    RMObjectGroup rmgroup;
+                    rmgroup.SetType(RMObjectGroup::ObjectType::BARRIER);
+                    rmgroup.SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_ROOF);
+                    rmgroup.AddObject(rm_obj);
+                    road->GetObjectGroups().push_back(rmgroup);
 
-                if (roof_outline != nullptr)
-                {
-                    rm_obj->GetOutlines().AddOutline(roof_outline);
-                }
-
-                RMObjectGroup rmgroup;
-                rmgroup.SetType(RMObjectGroup::ObjectType::BARRIER);
-                rmgroup.SetTunnelComponentType(RMObjectGroup::TunnelComponentType::TUNNEL_ROOF);
-                rmgroup.AddObject(rm_obj);
-                road->GetObjectGroups().push_back(rmgroup);
-
-                for (auto& og : object_group)
-                {
-                    og.GetColor()[3] = static_cast<float>(1.0 - tunnel->transparency_);  // set semitransparent
-                    road->GetObjectGroups().emplace_back(og);
+                    for (auto& og : object_group)
+                    {
+                        og.GetColor()[3] = static_cast<float>(1.0 - tunnel->transparency_);  // set semitransparent
+                        road->GetObjectGroups().emplace_back(og);
+                    }
                 }
             }
         }
@@ -15038,8 +15023,8 @@ void Outlines::CalculateDimensions(double ref_heading)
 
     for (auto& outline : outlines_)
     {
-        outline->CalculateCornerPositions();
-        outline->GetDimensionLimits(x_min, x_max, y_min, y_max, height_max);
+        outline.CalculateCornerPositions();
+        outline.GetDimensionLimits(x_min, x_max, y_min, y_max, height_max);
 
         if (x_min < x_min_global)
         {
