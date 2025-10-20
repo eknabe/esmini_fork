@@ -2607,10 +2607,10 @@ void Outline::GetCornersByIds(const std::vector<id_t>& cornerReferenceIds, std::
 
 Outline::~Outline()
 {
-    // intentially not deleting the corners, as they might be shared
-    // it's the responsibility of the owning object to delete them
-    // just clear the vector itself
-
+    for (auto& corner : corner_)
+    {
+        delete corner;
+    }
     corner_.clear();
 }
 

@@ -1695,9 +1695,7 @@ namespace roadmanager
         {
         }
 
-        virtual ~OutlineCorner() = 0
-        {
-        }
+        virtual ~OutlineCorner() = default;
 
         virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) = 0;
 
@@ -1850,6 +1848,7 @@ namespace roadmanager
               bounding_box_(false)  // default consider as explicit outline
         {
         }
+
         ~Outline();
 
         id_t     GetId() const;
@@ -2362,18 +2361,6 @@ namespace roadmanager
 
         ~RMObjectGroup()
         {
-            // remove outlines only for first object
-            if (objects_.size() > 0)
-            {
-                for (auto &outline : objects_[0]->GetOutlines().GetOutlines())
-                {
-                    for (auto &corner : outline.GetCorners())
-                    {
-                        delete corner;
-                    }
-                }
-            }
-
             for (auto &object : objects_)
             {
                 delete object;
