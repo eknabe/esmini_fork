@@ -2296,11 +2296,6 @@ namespace roadmanager
             return outlines_;
         }
 
-        void SetOutlines(const Outlines &outlines)
-        {
-            outlines_ = outlines;
-        }
-
     private:
         std::string            name_;
         id_t                   id_;

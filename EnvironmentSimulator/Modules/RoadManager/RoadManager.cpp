@@ -4986,71 +4986,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 double rradiusStart  = 0.0;
                 double rradiusEnd    = 0.0;
 
-                // add any outlines
-                Outlines outlines;
-                pugi::xml_node        outlines_node = object.child("outlines");
-                if (!outlines_node)
-                {
-                    outlines_node = object;  // allow outline elements directly under object
-                }
-
-                if (outlines_node && outlines_node.child("outline"))
-                {
-                    for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
-                    {
-                        id_t         id             = ReadAttributeAsUnsignedInt(outline_node, "id", 0, false);
-                        bool         closed         = ReadAttributeAsBool(outline_node, "closed", false, false);
-                        outlines.AddOutline(Outline(id, r->GetId(), s, t, heading, Outline::FillType::FILL_TYPE_UNDEFINED, closed));
-                        Outline*     outline        = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
-                        unsigned int corner_counter = 0;
-                        for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
-                        {
-                            OutlineCorner* corner  = 0;
-                            id_t           idc     = ReadAttributeAsUnsignedInt(corner_node, "id", corner_counter, false);
-                            double         heightc = ReadAttributeAsDouble(corner_node, "height", 0.0, true);
-
-                            if (!strcmp(corner_node.name(), "cornerRoad"))
-                            {
-                                outline->SetAllCornersLocalFlag(false);
-
-                                double s_corner = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
-                                double t_corner = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
-                                double dz       = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
-
-                                corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(idc, s_corner, t_corner, dz, heightc));
-                            }
-                            else if (!strcmp(corner_node.name(), "cornerLocal"))
-                            {
-                                double u      = ReadAttributeAsDouble(corner_node, "u", 0.0, true);
-                                double v      = ReadAttributeAsDouble(corner_node, "v", 0.0, true);
-                                double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
-
-                                corner = static_cast<OutlineCorner*>(new OutlineCornerLocal(idc, u, v, zLocal, heightc));
-                            }
-                            outline->AddCorner(corner);
-                            corner_counter++;
-                        }
-                    }
-                }
-                else
-                {
-                    // create outline for the generic bounding box
-                    outlines.AddOutline(Outline(ids, r->GetId(), s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true));
-                    Outline* outline     = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
-                    double   half_length = length / 2.0;
-                    double   half_width  = width / 2.0;
-
-                    outline->AddCorner(new OutlineCornerLocal(0, -half_length, -half_width, 0.0, height));
-                    outline->AddCorner(new OutlineCornerLocal(1, half_length, -half_width, 0.0, height));
-                    outline->AddCorner(new OutlineCornerLocal(2, half_length, half_width, 0.0, height));
-                    outline->AddCorner(new OutlineCornerLocal(3, -half_length, half_width, 0.0, height));
-
-                    outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
-                }
-
-                // adjust dimensions now that the compound outline is known
-                outlines.CalculateDimensions(heading);
-
                 while (!done)
                 {
                     if (repeat_node)
@@ -5142,9 +5077,73 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                  pos.GetHRoad());
 
                     obj->GetRepeatInfo() = repeat_info;
-                    Outlines outlines_instance = outlines;
-                    obj->SetOutlines(outlines_instance);
-#if 0
+
+                    // add any outlines
+                    Outlines& outlines  =    obj->GetOutlines();
+                    pugi::xml_node outlines_node = object.child("outlines");
+                    if (!outlines_node)
+                    {
+                        outlines_node = object;  // allow outline elements directly under object
+                    }
+
+                    if (outlines_node && outlines_node.child("outline"))
+                    {
+                        for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
+                        {
+                            id_t id     = ReadAttributeAsUnsignedInt(outline_node, "id", 0, false);
+                            bool closed = ReadAttributeAsBool(outline_node, "closed", false, false);
+                            outlines.AddOutline(Outline(id, r->GetId(), s, t, heading, Outline::FillType::FILL_TYPE_UNDEFINED, closed));
+                            Outline*     outline        = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
+                            unsigned int corner_counter = 0;
+                            for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
+                            {
+                                OutlineCorner* corner  = 0;
+                                id_t           idc     = ReadAttributeAsUnsignedInt(corner_node, "id", corner_counter, false);
+                                double         heightc = ReadAttributeAsDouble(corner_node, "height", 0.0, true);
+
+                                if (!strcmp(corner_node.name(), "cornerRoad"))
+                                {
+                                    outline->SetAllCornersLocalFlag(false);
+
+                                    double s_corner = ReadAttributeAsDouble(corner_node, "s", 0.0, true);
+                                    double t_corner = ReadAttributeAsDouble(corner_node, "t", 0.0, true);
+                                    double dz       = ReadAttributeAsDouble(corner_node, "dz", 0.0, true);
+
+                                    corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(idc, s_corner, t_corner, dz, heightc));
+                                }
+                                else if (!strcmp(corner_node.name(), "cornerLocal"))
+                                {
+                                    double u      = ReadAttributeAsDouble(corner_node, "u", 0.0, true);
+                                    double v      = ReadAttributeAsDouble(corner_node, "v", 0.0, true);
+                                    double zLocal = ReadAttributeAsDouble(corner_node, "z", 0.0, true);
+
+                                    corner = static_cast<OutlineCorner*>(new OutlineCornerLocal(idc, u, v, zLocal, heightc));
+                                }
+                                outline->AddCorner(corner);
+                                corner_counter++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // create outline for the generic bounding box
+                        outlines.AddOutline(Outline(ids, r->GetId(), s, t, pos.GetHRoad() + heading, Outline::FillType::FILL_TYPE_UNDEFINED, true));
+                        Outline* outline     = outlines.GetOutline(outlines.GetNumberOfOutlines() - 1);
+                        double   half_length = length / 2.0;
+                        double   half_width  = width / 2.0;
+
+                        outline->AddCorner(new OutlineCornerLocal(0, -half_length, -half_width, 0.0, height));
+                        outline->AddCorner(new OutlineCornerLocal(1, half_length, -half_width, 0.0, height));
+                        outline->AddCorner(new OutlineCornerLocal(2, half_length, half_width, 0.0, height));
+                        outline->AddCorner(new OutlineCornerLocal(3, -half_length, half_width, 0.0, height));
+
+                        outline->SetBoundingBoxFlag(true);  // indicate this is not an explicit outline
+                    }
+
+                    // adjust dimensions now that the compound outline is known
+                    outlines.CalculateDimensions(heading);
+
+#if 0 // old impl
                     // add any outlines
                     pugi::xml_node outlines_node = object.child("outlines");
                     if (!outlines_node)
