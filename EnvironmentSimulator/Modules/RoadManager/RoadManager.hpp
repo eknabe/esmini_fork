@@ -1697,7 +1697,7 @@ namespace roadmanager
 
         virtual ~OutlineCorner() = default;
 
-        virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) = 0;
+        virtual void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) = 0;
 
         int GetPos(double &x, double &y, double &z)
         {
@@ -1788,7 +1788,7 @@ namespace roadmanager
 
         ~OutlineCornerRoad() override = default;
 
-        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) override;
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override;
 
     private:
         double ds_;
@@ -1809,7 +1809,7 @@ namespace roadmanager
 
         ~OutlineCornerLocal() override = default;
 
-        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z) override;
+        void CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading) override;
 
     private:
         double u_, v_, z_;
@@ -1858,25 +1858,6 @@ namespace roadmanager
         FillType GetFillType() const;
         void     SetFillType(FillType fillType);
 
-        void SetScale(double scale_x, double scale_y, double scale_z)
-        {
-            scale_x_ = scale_x;
-            scale_y_ = scale_y;
-            scale_z_ = scale_z;
-        }
-
-        int GetScale(double& scale_x, double& scale_y, double& scale_z) const
-        {
-            if (scale_x_ == std::nan("") || scale_y_ == std::nan("") || scale_z_ == std::nan(""))
-            {
-                return -1;
-            }
-
-            scale_x = scale_x_;
-            scale_y = scale_y_;
-            scale_z = scale_z_;
-        }
-
         int      GetDimensionLimits(double &x_min, double &x_max, double &y_min, double &y_max, double &height_max);
         int      GetDimensions(double &dim_x, double &dim_y, double &dim_z);
         void     CalculateCornerPositions();
@@ -1905,9 +1886,6 @@ namespace roadmanager
         double                       s_           = std::nan("");  // s position of the outline reference point
         double                       t_           = std::nan("");  // t position of the outline reference point
         double                       heading_     = std::nan("");  // heading of the outline, around reference point
-        double                       scale_x_ = std::nan("");      // object size scaling factor along local x axis (length)
-        double                       scale_y_ = std::nan("");      // object size scaling factor along local y axis (width)
-        double                       scale_z_ = std::nan("");      // object size scaling factor along local z axis (height)
         std::vector<OutlineCorner *> corner_;
         ContourType                  contourType_ = CONTOUR_TYPE_POLYGON;  // controls how the 3D tessellation of the countour should be done
         bool bounding_box_ = false;  // indicates whether this outline represents a boundning box (true) or an explicit outline (false)

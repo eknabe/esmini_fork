@@ -2733,7 +2733,7 @@ void roadmanager::Outline::CalculateCornerPositions()
 {
     for (auto& corner : corner_)
     {
-        corner->CalculatePositions(road_id_, s_, t_, heading_, scale_x_, scale_y_, scale_z_);
+        corner->CalculatePositions(road_id_, s_, t_, heading_);
     }
 }
 
@@ -2958,7 +2958,6 @@ void roadmanager::RMObject::AdjustOutlinesWrtObjectDimensions()
     {
         double dim_x_, dim_y_, dim_z_;
         outline.GetDimensions(dim_x_, dim_y_, dim_z_);
-        outline.SetScale(width_ / dim_x_, length_ / dim_y_, height_ / dim_z_);
         outline.CalculateCornerPositions();
     }
 }
@@ -5142,6 +5141,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                     // adjust dimensions now that the compound outline is known
                     outlines.CalculateDimensions(heading);
+
+                    // scale based on size and repeat scale info
+                    for (auto& outline : outlines.GetOutlines())
+                    {
+                        outline.CalculateCornerPositions();
+                    }
 
 #if 0 // old impl
                     // add any outlines
@@ -14959,7 +14964,7 @@ int Shape::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_t& inde
 
 // TODO: ADD SCALE TO BELOW FUNCTIONS
 
-void OutlineCornerRoad::CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z)
+void OutlineCornerRoad::CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading)
 {
     Position pos;
 
@@ -14980,7 +14985,7 @@ void OutlineCornerRoad::CalculatePositions(id_t road_id, double s_ref, double t_
     RotateVec2D(x_tmp, y_tmp, -heading, xPosLocal_, yPosLocal_);
 }
 
-void OutlineCornerLocal::CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading, double scale_x, double scale_y, double scale_z)
+void OutlineCornerLocal::CalculatePositions(id_t road_id, double s_ref, double t_ref, double heading)
 {
     Position pos;
 
