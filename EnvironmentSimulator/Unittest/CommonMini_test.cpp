@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <vector>
 #include "CommonMini.hpp"
 #include "logger.hpp"
 #include "esminiLib.hpp"
@@ -350,7 +351,7 @@ TEST(LogFeatures, TestLogCallback)
     LOG_WARN("Expected message");
     EXPECT_EQ(log_msg_received, true);
 
-    txtLogger.UnregisterCallback(log_callback);
+    txtLogger.ClearCallbacks();
     EXPECT_EQ(txtLogger.GetNumberOfCallbacks(), 0);
 }
 

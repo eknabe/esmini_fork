@@ -112,14 +112,9 @@ namespace esmini::common
         }
     }
 
-    void TxtLogger::UnregisterCallback(CallbackFuncPtr callback)
+    void TxtLogger::ClearCallbacks()
     {
-        auto it = std::find(callbacks_.begin(), callbacks_.end(), callback);
-
-        if (it != callbacks_.end())
-        {
-            callbacks_.erase(it);
-        }
+        callbacks_.clear();
     }
 
     unsigned int TxtLogger::GetNumberOfCallbacks()

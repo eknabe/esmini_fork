@@ -110,8 +110,8 @@ namespace esmini::common
         // register a callback function for receiving log messages
         void RegisterCallback(CallbackFuncPtr callback);
 
-        // unregister a specific callback function for receiving log messages
-        void UnregisterCallback(CallbackFuncPtr callback);
+        // unregister all callbacks
+        void ClearCallbacks();
 
         // get the number of registered callbacks
         unsigned int GetNumberOfCallbacks();
