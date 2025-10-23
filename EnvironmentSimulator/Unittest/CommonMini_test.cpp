@@ -1,6 +1,6 @@
+
 #include <gtest/gtest.h>
 
-#include <vector>
 #include "CommonMini.hpp"
 #include "logger.hpp"
 #include "esminiLib.hpp"
