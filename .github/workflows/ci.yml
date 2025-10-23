@@ -64,7 +64,7 @@ jobs:
           mkdir build
           cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local/cppcheck-2.17.1 -DCMAKE_BUILD_TYPE=Release
-          make -j$(nproc)
+          make -j
           make install
 
       - name: Add Cppcheck to PATH
@@ -131,7 +131,7 @@ jobs:
         run: cmake "--preset=ci-$("${{ matrix.os }}".split("-")[0])-test" -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: CMake Build
-        run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
+        run: cmake --build build --config ${{ matrix.configuration }} --target install -j
 
       - name: Compile minimal C example
         if: runner.os == 'Linux'
@@ -147,7 +147,7 @@ jobs:
           mkdir build
           cd build
           cmake ..
-          cmake --build . -j2
+          cmake --build . -j
 
       - name: Validate OSMP FMU
         if: runner.os == 'Linux'
@@ -239,7 +239,7 @@ jobs:
         uses: ./.github/actions/wrapper_check
 
       - name: CMake Build
-        run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
+        run: cmake --build build --config ${{ matrix.configuration }} --target install -j
 
       - name: Run Tests - Unix
         if: runner.os != 'Windows'
