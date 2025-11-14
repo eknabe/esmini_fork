@@ -92,7 +92,6 @@ macro(set_osg_libs)
             ${EXTERNALS_OSG_LIBRARY_PATH}/libOpenThreadsd.a
             debug
             ${EXTERNALS_OSG_LIBRARY_PATH}/libjpegd.a
-            libpng16.a
             GL
             X11
             Xrandr
