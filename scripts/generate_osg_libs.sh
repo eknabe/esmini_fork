@@ -96,12 +96,12 @@ if [ "$OSTYPE" == "msys" ]; then
     fi
 
     if [ $fbx_support = true ]; then
+        echo ------------------------ Installing FBX SDK ------------------------------------
         if [ ! -f fbx202021_fbxsdk_vs2017_win.exe ]; then
             curl --user-agent  "Mozilla/5.0" -L https://www.autodesk.com/content/dam/autodesk/www/adn/fbx/2020-2-1/fbx202021_fbxsdk_vs2017_win.exe -o fbx202021_fbxsdk_vs2017_win.exe
         fi
 
         if [ ! -d "$PROGRAMFILES/Autodesk/FBX/FBX SDK/2020.2.1/include" ]; then
-            echo Installing FBX SDK...
             powershell -Command "Start-Process fbx202021_fbxsdk_vs2017_win.exe -ArgumentList /S -Wait"
         else
             echo FBX SDK already installed
@@ -147,6 +147,7 @@ elif  [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
         echo zlib folder already exists, continue with next step...
     fi
 
+    cd $osg_root_dir
     if [ ! -d libpng ]; then
         echo ------------------------ Installing libpng ------------------------------------
         git clone https://github.com/pnggroup/libpng --depth 1 --branch v1.6.$PNG_MIN_VERSION
@@ -160,6 +161,7 @@ elif  [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
         echo libpng folder already exists, continue with next step...
     fi
 
+    cd $osg_root_dir
     if [ $fbx_support = true ]; then
         echo ------------------------ Installing FBX SDK ------------------------------------
         if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -191,7 +193,7 @@ cd $osg_root_dir
 if [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "darwin"* ]]; then
     if [ ! -d jpeg-9e ]; then
         if [ ! -f jpegsrc.v9e.tar.gz ]; then
-            echo ------------------------ Downloading libjpeg ------------------------------------
+            echo ------------------------ Installing libjpeg ------------------------------------
             curl -L -O http://www.ijg.org/files/jpegsrc.v9e.tar.gz
         fi
         tar xzf jpegsrc.v9e.tar.gz
