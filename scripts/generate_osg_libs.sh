@@ -232,6 +232,9 @@ if [ ! -d OpenSceneGraph ]; then
     # Apply fix '_FPOSOFF' has been deprecated #26231
     git checkout fca3b5b9a9f1c36ddf08ed08cbe02a2668fa4ee9 src/osgPlugins/osga/OSGA_Archive.cpp
 
+    # Apply fix to use ecplicit jpeg and png libraries
+    git checkout 27e353b55cdeb0eb397d61a4b731810c9b40cb75 CMakeLists.txt
+
     # Enforce pthread sched_yield() in favor of pthread_yield() which was deprecated in glibc 2.34
     sed -i '' 's/CHECK_FUNCTION_EXISTS(pthread_yield/# CHECK_FUNCTION_EXISTS(pthread_yield/g' src/OpenThreads/pthreads/CMakeLists.txt
 
@@ -261,7 +264,7 @@ if [ ! -d OpenSceneGraph/build ]; then
         cmake --build . $PARALLEL_BUILDS --target install
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        cmake ${COMMON_ARGS} -DOSG_TEXT_USE_FONTCONFIG=false -DOPENGL_PROFILE=GL2 -DJPEG_INCLUDE_DIR=$osg_root_dir/jpeg-9e -DJPEG_LIBRARY_RELEASE=$osg_root_dir/jpeg-9e/.libs/libjpeg.a -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -fPIC -DGL_SILENCE_DEPRECATION" -DCMAKE_OSX_ARCHITECTURES="$macos_arch" -DCMAKE_INSTALL_PREFIX=../install ..
+        cmake ${COMMON_ARGS} -DOSG_TEXT_USE_FONTCONFIG=false -DOPENGL_PROFILE=GL2 -DJPEG_INCLUDE_DIR=$osg_root_dir/jpeg-9e -DJPEG_LIBRARY_RELEASE=$osg_root_dir/jpeg-9e/.libs/libjpeg.a -DPNG_INCLUDE_DIR=$osg_root_dir/libpng -DPNG_LIBRARY_RELEASE=$osg_root_dir/libpng/build/libpng16.a -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -fPIC -DGL_SILENCE_DEPRECATION" -DCMAKE_OSX_ARCHITECTURES="$macos_arch" -DCMAKE_INSTALL_PREFIX=../install ..
 
         cmake --build . -j $PARALLEL_BUILDS --config Release --target install
 
