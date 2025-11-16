@@ -53,7 +53,7 @@ if [ "$OSTYPE" == "msys" ]; then
     LIB_OT_PREFIX="ot*-"
 
     target_dir="v10"
-    zfilename="osg_v10.7z"
+    zfilename="osg_win.7z"
     z_exe="$PROGRAMFILES/7-Zip/7z"
 
 elif [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
