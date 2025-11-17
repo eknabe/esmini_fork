@@ -155,7 +155,7 @@ elif  [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
         mkdir install
         mkdir build
         cd build
-        cmake .. -DPNG_STATIC=ON
+        cmake .. -DPNG_STATIC=ON -DCMAKE_C_FLAGS=-fPIC
         cmake --build .
     else
         echo libpng folder already exists, continue with next step...
