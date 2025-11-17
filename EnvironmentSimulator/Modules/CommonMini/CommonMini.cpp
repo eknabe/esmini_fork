@@ -1228,13 +1228,13 @@ std::string LexicallyNormalizePath(const std::string& path_str)
         }
     }
 
+    // Check if the original path was absolute (started with '/' or '\')
+    bool is_absolute = !path_str.empty() && temp_path.front() == '/';
+
     // 2. Tokenize the path string
     std::stringstream        ss(temp_path);
     std::string              segment;
     std::vector<std::string> components;
-
-    // Check if the original path was absolute (started with '/' or '\')
-    bool is_absolute = !path_str.empty() && (path_str.front() == '/' || path_str.front() == '\\');
 
     // Use '/' to split the path into segments. This handles multiple consecutive separators (e.g., //)
     while (std::getline(ss, segment, OUTPUT_SEPARATOR))
@@ -1246,25 +1246,17 @@ std::string LexicallyNormalizePath(const std::string& path_str)
             continue;
         }
 
-        // 3. Handle ".." (Parent directory) - MODIFIED LOGIC
+        // 3. Handle ".." (Parent directory)
         if (segment == "..")
         {
             // Check if the stack is NOT empty AND the previous component is NOT '..'
             if (!components.empty() && components.back() != "..")
             {
-                // This pops 'b' in 'a/b/..'
-                components.pop_back();
+                components.pop_back();  // Remove the last valid component
             }
-            else if (is_absolute && components.empty())
+            else if (!(is_absolute && components.empty()))
             {
-                // We are at the root, skip pushing
-                continue;
-            }
-            else
-            {
-                // Path is relative AND the stack is empty,
-                // OR the previous item was '..', we must keep it. (e.g., ../../file)
-                components.push_back(segment);
+                components.push_back(segment);  // Not at root, add segment
             }
         }
         else
