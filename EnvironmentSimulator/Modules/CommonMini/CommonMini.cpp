@@ -1233,6 +1233,9 @@ std::string LexicallyNormalizePath(const std::string& path_str)
     std::string              segment;
     std::vector<std::string> components;
 
+    // Check if the original path was absolute (started with '/' or '\')
+    bool is_absolute = !path_str.empty() && (path_str.front() == '/' || path_str.front() == '\\');
+
     // Use '/' to split the path into segments. This handles multiple consecutive separators (e.g., //)
     while (std::getline(ss, segment, OUTPUT_SEPARATOR))
     {
@@ -1243,17 +1246,24 @@ std::string LexicallyNormalizePath(const std::string& path_str)
             continue;
         }
 
+        // 3. Handle ".." (Parent directory) - MODIFIED LOGIC
         if (segment == "..")
         {
-            // 3. Handle ".." (Parent directory)
+            // Check if the stack is NOT empty AND the previous component is NOT '..'
             if (!components.empty() && components.back() != "..")
             {
-                // If the stack is not empty and the last element isn't '..', pop the last component
+                // This pops 'b' in 'a/b/..'
                 components.pop_back();
+            }
+            else if (is_absolute && components.empty())
+            {
+                // We are at the root, skip pushing
+                continue;
             }
             else
             {
-                // Otherwise, keep the ".." (Handles paths like "../../file.txt")
+                // Path is relative AND the stack is empty,
+                // OR the previous item was '..', we must keep it. (e.g., ../../file)
                 components.push_back(segment);
             }
         }
@@ -1266,9 +1276,6 @@ std::string LexicallyNormalizePath(const std::string& path_str)
 
     // 5. Reconstruct the path
     std::string normalized_path;
-
-    // Check if the original path was absolute (started with '/' or '\')
-    bool is_absolute = !path_str.empty() && (path_str.front() == '/' || path_str.front() == '\\');
 
     if (is_absolute)
     {
