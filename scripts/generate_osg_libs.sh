@@ -236,7 +236,11 @@ if [ ! -d OpenSceneGraph ]; then
     git checkout 27e353b55cdeb0eb397d61a4b731810c9b40cb75 CMakeLists.txt
 
     # Enforce pthread sched_yield() in favor of pthread_yield() which was deprecated in glibc 2.34
-    sed -i '' 's/CHECK_FUNCTION_EXISTS(pthread_yield/# CHECK_FUNCTION_EXISTS(pthread_yield/g' src/OpenThreads/pthreads/CMakeLists.txt
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' 's/CHECK_FUNCTION_EXISTS(pthread_yield/# CHECK_FUNCTION_EXISTS(pthread_yield/g' src/OpenThreads/pthreads/CMakeLists.txt
+    else
+        sed -i 's/CHECK_FUNCTION_EXISTS(pthread_yield/# CHECK_FUNCTION_EXISTS(pthread_yield/g' src/OpenThreads/pthreads/CMakeLists.txt
+    fi
 
     # unstage and show status of the repo
     git reset
