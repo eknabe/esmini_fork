@@ -269,6 +269,14 @@ public:
         return res;
     }
 
+    SE_Vector operator/(double const& s) const
+    {
+        SE_Vector res;
+        res.x_ = x_ / MAX(SMALL_NUMBER, s);
+        res.y_ = y_ / MAX(SMALL_NUMBER, s);
+        return res;
+    }
+
     SE_Vector& operator+=(SE_Vector const& p)
     {
         this->x_ += p.x_;
