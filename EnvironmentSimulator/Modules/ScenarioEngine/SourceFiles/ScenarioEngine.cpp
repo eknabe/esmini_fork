@@ -383,6 +383,40 @@ int ScenarioEngine::step(double deltaSimTime)
             obj->SetEndOfRoad(false);
         }
 
+        // adjust heading wrt reference point x offset from rear wheel axle
+        if (obj->type_ == Object::Type::VEHICLE)
+        {
+            Vehicle* v = static_cast<Vehicle*>(obj);
+            if (o != nullptr && !NEAR_ZERO(v->GetRefpointXOffset()))
+            {
+                // calculate previous rear axle position
+                SE_Vector old_rac_local = SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(o->state_.pos.GetH());
+                SE_Vector old_rac       = SE_Vector(o->state_.pos.GetX(), o->state_.pos.GetY()) + old_rac_local;
+                v->pos_.SetHeading(GetAngleInInterval2PI(GetAngleOfVector(v->pos_.GetX() - old_rac.x(), v->pos_.GetY() - old_rac.y())));
+
+                // calculate new rear axle position and then its speed
+                v->rear_axle_pos_     = SE_Vector(v->pos_.GetX(), v->pos_.GetY()) + SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(v->pos_.GetH());
+                v->rear_axle_vel_     = (v->rear_axle_pos_ - old_rac) / MAX(SMALL_NUMBER, deltaSimTime);
+                SE_Vector heading_dir = SE_Vector(1.0, 0.0).Rotate(v->pos_.GetH());
+
+                // project rear axle velocity on heading direction to get longitudinal speed at rear axle
+                double projected_speed[2];
+                v->rear_axle_speed_ = ProjectPointOnVector2DSignedLength(v->rear_axle_vel_.x(),
+                                                                         v->rear_axle_vel_.y(),
+                                                                         heading_dir.x(),
+                                                                         heading_dir.y(),
+                                                                         projected_speed[0],
+                                                                         projected_speed[1]);
+            }
+            else
+            {
+                // no offset, rear axle coincides with reference position
+                v->rear_axle_pos_.Set(v->pos_.GetX(), v->pos_.GetY());
+                v->rear_axle_vel_.Set(v->pos_.GetVelX(), v->pos_.GetVelY());
+                v->rear_axle_speed_ = v->GetSpeed();
+            }
+        }
+
         // Report updated state to the gateway
         if (scenarioGateway.isObjectReported(obj->id_))
         {
@@ -876,24 +910,28 @@ void ScenarioEngine::prepareGroundTruth(double dt)
                     obj->SetAngularAcc(GetAngleDifference(heading_rate_new, obj->state_old.h_rate) / dt, 0.0, 0.0);
                 }
 
-                // Update wheel rotations of internal scenario objects
-                if (!obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ANGLE))
+                if (obj->type_ == Object::Type::VEHICLE)
                 {
-                    // An improvised calculation of a steering angle based on yaw rate and enitity speed
-                    double steeringAngleTarget = SIGN(obj->GetSpeed()) * M_PI * heading_rate_new / MAX(fabs(obj->GetSpeed()), 1.0);
-                    double steeringAngleDiff   = steeringAngleTarget - obj->wheel_angle_;
+                    Vehicle* v = static_cast<Vehicle*>(obj);
 
-                    // Turn wheel gradually towards target
-                    double steeringAngleStep = SIGN(steeringAngleDiff) * MIN(abs(steeringAngleDiff), 0.5 * dt);
+                    // Update wheel rotations of internal scenario objects
+                    if (!obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ANGLE))
+                    {
+                        if (fabs(obj->GetSpeed()) > SMALL_NUMBER)
+                        {
+                            // Calculate steering angle according to simple bicycle model
+                            obj->wheel_angle_ =
+                                SIGN(v->rear_axle_speed_) * atan2(heading_rate_new * v->front_axle_.positionX, fabs(v->rear_axle_speed_));
+                            obj->SetDirtyBits(Object::DirtyBit::WHEEL_ANGLE);
+                        }
+                    }
 
-                    obj->wheel_angle_ += steeringAngleStep;
-                    obj->SetDirtyBits(Object::DirtyBit::WHEEL_ANGLE);
-                }
-
-                if (!obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ROTATION))
-                {
-                    obj->wheel_rot_ = fmod(obj->wheel_rot_ + obj->speed_ * dt / WHEEL_RADIUS, 2 * M_PI);
-                    obj->SetDirtyBits(Object::DirtyBit::WHEEL_ROTATION);
+                    if (!obj->CheckDirtyBits(Object::DirtyBit::WHEEL_ROTATION))
+                    {
+                        // Update wheel rotation based on sign of rear axle speed and magnitude of reference point speed
+                        obj->wheel_rot_ = fmod(obj->wheel_rot_ + SIGN(v->rear_axle_speed_) * fabs(obj->GetSpeed()) * dt / WHEEL_RADIUS, 2 * M_PI);
+                        obj->SetDirtyBits(Object::DirtyBit::WHEEL_ROTATION);
+                    }
                 }
             }
             else
