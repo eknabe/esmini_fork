@@ -383,40 +383,6 @@ int ScenarioEngine::step(double deltaSimTime)
             obj->SetEndOfRoad(false);
         }
 
-        // adjust heading wrt reference point x offset from rear wheel axle
-        if (obj->type_ == Object::Type::VEHICLE)
-        {
-            Vehicle* v = static_cast<Vehicle*>(obj);
-            if (o != nullptr && !NEAR_ZERO(v->GetRefpointXOffset()))
-            {
-                // calculate previous rear axle position
-                SE_Vector old_rac_local = SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(o->state_.pos.GetH());
-                SE_Vector old_rac       = SE_Vector(o->state_.pos.GetX(), o->state_.pos.GetY()) + old_rac_local;
-                v->pos_.SetHeading(GetAngleInInterval2PI(GetAngleOfVector(v->pos_.GetX() - old_rac.x(), v->pos_.GetY() - old_rac.y())));
-
-                // calculate new rear axle position and then its speed
-                v->rear_axle_pos_     = SE_Vector(v->pos_.GetX(), v->pos_.GetY()) + SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(v->pos_.GetH());
-                v->rear_axle_vel_     = (v->rear_axle_pos_ - old_rac) / MAX(SMALL_NUMBER, deltaSimTime);
-                SE_Vector heading_dir = SE_Vector(1.0, 0.0).Rotate(v->pos_.GetH());
-
-                // project rear axle velocity on heading direction to get longitudinal speed at rear axle
-                double projected_speed[2];
-                v->rear_axle_speed_ = ProjectPointOnVector2DSignedLength(v->rear_axle_vel_.x(),
-                                                                         v->rear_axle_vel_.y(),
-                                                                         heading_dir.x(),
-                                                                         heading_dir.y(),
-                                                                         projected_speed[0],
-                                                                         projected_speed[1]);
-            }
-            else
-            {
-                // no offset, rear axle coincides with reference position
-                v->rear_axle_pos_.Set(v->pos_.GetX(), v->pos_.GetY());
-                v->rear_axle_vel_.Set(v->pos_.GetVelX(), v->pos_.GetVelY());
-                v->rear_axle_speed_ = v->GetSpeed();
-            }
-        }
-
         // Report updated state to the gateway
         if (scenarioGateway.isObjectReported(obj->id_))
         {
@@ -539,6 +505,47 @@ int ScenarioEngine::step(double deltaSimTime)
                     LOG_ERROR("Unexpected missing tow vehicle of vehicle {} with id {}", obj->GetName(), obj->GetId());
                     break;
                 }
+            }
+        }
+    }
+
+    // adjust heading wrt any reference point x offset from rear wheel axle
+    for (size_t i = 0; i < entities_.object_.size(); i++)
+    {
+        Object* obj = entities_.object_[i];
+        if (obj->type_ == Object::Type::VEHICLE)
+        {
+            Vehicle*     v = static_cast<Vehicle*>(obj);
+            ObjectState* o = scenarioGateway.getObjectStatePtrById(v->GetId());
+
+            if (o != nullptr && !NEAR_ZERO(v->GetRefpointXOffset()))
+            {
+                double xy_heading =
+                    GetAngleInInterval2PI(atan2(o->state_.pos.GetY() - v->rear_axle_pos_.y(), o->state_.pos.GetX() - v->rear_axle_pos_.x()));
+
+                scenarioGateway.updateObjectWorldPosXYH(v->GetId(), getSimulationTime(), o->state_.pos.GetX(), o->state_.pos.GetY(), xy_heading);
+
+                // calculate new rear axle position and then its speed
+                SE_Vector rac = SE_Vector(o->state_.pos.GetX(), o->state_.pos.GetY()) + SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(xy_heading);
+                v->rear_axle_vel_     = (rac - v->rear_axle_pos_) / MAX(SMALL_NUMBER, deltaSimTime);
+                v->rear_axle_pos_     = rac;
+                SE_Vector heading_dir = SE_Vector(1.0, 0.0).Rotate(xy_heading);
+
+                // project rear axle velocity on heading direction to get longitudinal speed at rear axle
+                double projected_speed[2];
+                v->rear_axle_speed_ = ProjectPointOnVector2DSignedLength(v->rear_axle_vel_.x(),
+                                                                         v->rear_axle_vel_.y(),
+                                                                         heading_dir.x(),
+                                                                         heading_dir.y(),
+                                                                         projected_speed[0],
+                                                                         projected_speed[1]);
+            }
+            else
+            {
+                // no offset, rear axle coincides with reference position
+                v->rear_axle_pos_.Set(v->pos_.GetX(), v->pos_.GetY());
+                v->rear_axle_vel_.Set(v->pos_.GetVelX(), v->pos_.GetVelY());
+                v->rear_axle_speed_ = v->GetSpeed();
             }
         }
     }
@@ -764,14 +771,21 @@ int ScenarioEngine::parseScenario()
         }
     }
 
-    // Align trailers
     for (size_t i = 0; i < entities_.object_.size(); i++)
     {
         Object* obj = entities_.object_[i];
+
+        // Align trailers
         if (!obj->TowVehicle() && obj->TrailerVehicle())
         {
             // Found a front tow vehicle, update trailers
             (static_cast<Vehicle*>(obj)->AlignTrailers());
+        }
+
+        // Calculate rear axle positions
+        if (obj->type_ == Object::Type::VEHICLE)
+        {
+            static_cast<Vehicle*>(obj)->AlignRearAxlePosition();
         }
     }
 

@@ -311,6 +311,11 @@ void ControllerSumo::Step(double timeStep)
                     static_cast<Vehicle*>(obj)->AlignTrailers();
                 }
 
+                if (obj->GetType() == Object::Type::VEHICLE)
+                {
+                    static_cast<Vehicle*>(obj)->AlignRearAxlePosition();
+                }
+
                 obj->SetDirtyBits(Object::DirtyBit::LATERAL | Object::DirtyBit::LONGITUDINAL);
 
                 // Report updated state to the gateway
