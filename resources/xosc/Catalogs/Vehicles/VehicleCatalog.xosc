@@ -413,7 +413,7 @@
         </Vehicle>
 
         <!-- Truck trailer rotating front axle only -->
-        <Vehicle name="truck_trailer_front_axle" vehicleCategory="trailer" model3d="../models/truck_trailer_rotating_axle.osgb">
+        <Vehicle name="truck_trailer_front_axle" vehicleCategory="trailer" model3d="../models/trailer_rotating_axle.osgb">
             <ParameterDeclarations>
                 <ParameterDeclaration name="TrailerRef" parameterType="string" value=""/>
             </ParameterDeclarations>
