@@ -42,7 +42,7 @@
                </PrivateAction>            
                <PrivateAction>
                   <RoutingAction>
-                     <FollowTrajectoryAction initialDistanceOffset="5.0">
+                     <FollowTrajectoryAction initialDistanceOffset="0.0">
                         <Trajectory closed="false" name="TrajectoryPLine">
                            <ParameterDeclarations/>
                            <Shape>
