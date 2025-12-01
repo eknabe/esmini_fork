@@ -2376,9 +2376,9 @@ class TestSuite(unittest.TestCase):
                 self.assertTrue(re.search('^33.000, 10, car4, 12.867, 325.249, -0.579, 1.559, 6.278, 0.000, 13.042, -0.000, 5.417', csv, re.MULTILINE))
 
             elif platform == "linux" or platform == "linux2":
-                # truck instance is randomized differently on linux
+                # vehicle models are randomized differently on linux
                 self.assertTrue(re.search('^22.000, 0, Ego, 8.546, 131.996, -0.209, 1.565, 0.002, 0.000, 17.450, -0.000, 3.649', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 1, Target1, 5.557, 142.501, -0.233, 1.543, 0.002, 6.283, 25.000, -0.006, 2.229', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 1, Target1, 5.557, 142.501, -0.233, 1.543, 0.002, 6.283, 25.000, -0.005, 2.229', csv, re.MULTILINE))
                 self.assertTrue(re.search('^22.000, 2, car1, 14.801, 284.642, -0.500, 1.558, 0.000, 0.000, 14.720, 0.000, 3.506', csv, re.MULTILINE))
                 self.assertTrue(re.search('^22.000, 3, bus1, -5.162, 102.463, -0.140, 4.707, 0.000, 0.000, 13.840, 0.000, 1.751', csv, re.MULTILINE))
                 self.assertTrue(re.search('^22.000, 4, truck1, -4.528, 199.247, -0.346, 4.703, 0.005, 0.000, 14.041, -0.000, 4.474', csv, re.MULTILINE))
@@ -2420,11 +2420,11 @@ class TestSuite(unittest.TestCase):
                 self.assertTrue(re.search('^40.000, 1, 0, 218.251, -3.640, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 5.121', csv, re.MULTILINE))
                 self.assertTrue(re.search('^40.000, 2, 1, 510.657, 226.636, 0.000, 2.384, 0.000, 0.000, 13.026, -0.034, 5.670', csv, re.MULTILINE))
                 self.assertTrue(re.search('^40.000, 3, 2, 339.507, 1.880, 0.000, 3.142, 0.000, 0.000, 0.001, 0.000, 0.008', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 4, 3, 290.049, -4.098, 0.000, 1.861, 0.000, 0.000, 0.000, 1.571, 4.370', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 97, 81, 437.115, -238.120, 0.000, 3.142, 0.000, 0.000, 13.858, -0.028, 0.180', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 98, 91, 531.880, -77.001, 0.000, 1.571, 0.000, 0.000, 12.382, 0.031, 3.816', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 99, 84, 459.101, -238.120, 0.000, 3.142, 0.000, 0.000, 14.010, -0.068, 2.624', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 100, 99, 531.880, -97.204, 0.000, 1.571, 0.000, 0.000, 12.457, 0.100, 1.835', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 4, 3, 290.049, -4.098, 0.000, 1.861, 0.000, 0.000, 0.000, 0.016, 4.370', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 97, 81, 437.115, -238.120, 0.000, 3.142, 0.000, 0.000, 13.858, -0.017, 0.180', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 98, 91, 531.880, -77.001, 0.000, 1.571, 0.000, 0.000, 12.382, 0.019, 3.816', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 99, 84, 459.101, -238.120, 0.000, 3.142, 0.000, 0.000, 14.010, -0.017, 2.624', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 100, 99, 531.880, -97.204, 0.000, 1.571, 0.000, 0.000, 12.457, 0.019, 1.835', csv, re.MULTILINE))
             else:
                 print("Skipping large test for non-Release build ", end='', file=sys.stderr)
         else:
