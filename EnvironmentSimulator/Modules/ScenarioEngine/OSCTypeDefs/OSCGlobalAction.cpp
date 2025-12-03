@@ -1720,6 +1720,10 @@ void TrafficStopAction::Step(double simTime, double dt)
 {
     (void)simTime;
     (void)dt;
-    auto traffic_to_stop = context_->GetScenarioEngine().storyBoard.FindChildByName(traffic_action_to_stop_);
-    traffic_to_stop->Stop();
+    std::vector<StoryBoardElement*> actions =
+        context_->GetScenarioEngine().storyBoard.FindChildByTypeAndName(StoryBoardElement::ElementType::ACTION, traffic_action_to_stop_);
+    for (auto& action : actions)
+    {
+        action->Stop();
+    }
 }
