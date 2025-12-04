@@ -57,3 +57,10 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: sudo apt-get install -q -y cppcheck
+
+    - name: Install specific clang-format version
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt update
+        && sudo apt install clang-format-15 -y
+        && clang-format --version
