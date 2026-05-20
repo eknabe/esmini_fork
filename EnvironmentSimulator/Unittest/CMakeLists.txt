@@ -38,7 +38,13 @@ set(RoadManager_test_sources
 unittest(
     RoadManager_test
     "${RoadManager_test_sources}"
-    RoadManager)
+    RoadManager
+    ${VIEWER_LIBS_FOR_TEST}
+    ${OSG_LIBRARIES}
+    ${OSI_LIBRARIES}
+    ${SUMO_LIBRARIES}
+    ${FMT_LIBRARIES}
+    ${SOCK_LIB})
 
 # ############################### Creating executable (ScenarioEngine_test) ##########################################
 

@@ -17,7 +17,8 @@ endif()
 set(SOURCES
     RoadManager.cpp
     odrSpiral.cpp
-    LaneIndependentRouter.cpp)
+    LaneIndependentRouter.cpp
+    RoadObjectExpansion.cpp)
 
 add_library(
     pugixml_lib
@@ -26,7 +27,8 @@ add_library(
 set(INCLUDES
     RoadManager.hpp
     odrSpiral.h
-    LaneIndependentRouter.hpp)
+    LaneIndependentRouter.hpp
+    RoadObjectExpansion.hpp)
 
 # ############################### Creating library ###################################################################
 

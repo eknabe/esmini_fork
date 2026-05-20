@@ -20,6 +20,7 @@
 #include <osg/Geometry>
 #include <osg/Material>
 #include "RoadManager.hpp"
+#include "RoadObjectExpansion.hpp"
 #include "trafficlightmodel.hpp"
 
 namespace roadgeom
@@ -52,6 +53,8 @@ namespace roadgeom
     uint64_t  GenerateMaterialKey(double r, double g, double b, double a, uint8_t t, uint8_t f);
     osg::Vec4 ODR2OSGColor(roadmanager::RoadMarkColor color);
 
+    struct MarkingEdge;  // Forward declaration
+
     class RoadGeom
     {
     public:
@@ -62,7 +65,8 @@ namespace roadgeom
             GRASS,
             ROADMARK,
             CONCRETE,
-            BORDER
+            BORDER,
+            OBJECT_MARKING,
         };
 
         osg::ref_ptr<osg::Group>                                  root_;
@@ -112,6 +116,27 @@ namespace roadgeom
         std::unordered_map<int, TrafficLightModel> traffic_light_;
 
     private:
+        osg::ref_ptr<osg::Group> CreateExpandedContinuousSegmentGeom(const std::array<roadmanager::Vec2, 4>& corners,
+                                                                     double                                  z0,
+                                                                     double                                  z1,
+                                                                     double                                  heightStart,
+                                                                     double                                  heightEnd,
+                                                                     bool                                    emitStartCap,
+                                                                     bool                                    emitEndCap,
+                                                                     osg::Vec4                               color,
+                                                                     const osg::Vec3d&                       origin);
+        osg::ref_ptr<osg::Group> CreateObjectMarkingsGeomFromPolyline(const std::vector<osg::Vec3d>&                points,
+                                                                      const roadmanager::RMObjectMarkingDefinition& marking,
+                                                                      const osg::Vec4&                              color,
+                                                                      bool                                          closed_loop);
+        osg::ref_ptr<osg::Group> CreateObjectMarkingsGeom(const std::vector<MarkingEdge>&               edges,
+                                                          const roadmanager::RMObjectMarkingDefinition& marking,
+                                                          const osg::Vec4&                              color);
+        void                     AddExpandedObjectsForRoad(roadmanager::Road*       road,
+                                                           const osg::Vec3d&        origin,
+                                                           osg::ref_ptr<osg::Group> parent,
+                                                           const std::string&       exe_path);
+
         unsigned int                                                   number_of_materials     = 0;
         std::unordered_map<MaterialType, osg::ref_ptr<osg::Texture2D>> texture_map_            = {};
         double                                                         lane_friction_          = 1.0;

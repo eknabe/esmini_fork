@@ -120,13 +120,13 @@
          <object type="barrier" s="0.0" t="0.0" length="150.0" hdg="0.0" orientation="none" id="4" zOffset="0.0">
             <repeat distance="0.0" heightStart="2.0" heightEnd="2.0" widthStart="39.5" widthEnd="39.5" zOffsetEnd="5.0" zOffsetStart="5.0" length="150" s="400.0" tStart="-1.75" tEnd="-1.75"/>
          </object>
-         <tunnel s="30.0" length="250.0" name="FlexibleTunnel" id="1" type="standard" lighting="0.5" daylight="0.9">
+         <tunnel s="30.0" length="250.0" name="FlexibleTunnel" id="5" type="standard" lighting="0.5" daylight="0.9">
             <userData code="generate3DModel" value="true"/>
          </tunnel>
-         <tunnel s="340.0" length="8.0" name="ShortTunnel" id="2" type="standard" lighting="0.5" daylight="0.9">
+         <tunnel s="340.0" length="8.0" name="ShortTunnel" id="6" type="standard" lighting="0.5" daylight="0.9">
             <userData code="generate3DModel" value="true"/>
          </tunnel>
-         <tunnel s="400.0" length="150.0" name="ManualTunnel" id="3" type="standard" lighting="0.5" daylight="0.9">
+         <tunnel s="400.0" length="150.0" name="ManualTunnel" id="7" type="standard" lighting="0.5" daylight="0.9">
             <userData code="generate3DModel" value="false"/>
          </tunnel>
       </objects>
@@ -208,7 +208,7 @@
          </laneSection>
       </lanes>
       <objects>
-         <tunnel s="30.0" length="250.0" name="FlexibleTunnel" id="4" type="standard" lighting="0.5" daylight="0.9">
+         <tunnel s="30.0" length="250.0" name="FlexibleTunnel" id="8" type="standard" lighting="0.5" daylight="0.9">
             <userData code="generate3DModel" value="true"/>
          </tunnel>
       </objects>

@@ -2795,6 +2795,11 @@ void Road::AddObject(RMObject* object)
     object_.push_back(object);
 }
 
+void Road::AddObjectDefinition(const RMObjectDefinition& object_definition)
+{
+    object_definitions_.push_back(object_definition);
+}
+
 void Road::AddTunnel(Tunnel* tunnel)
 {
     tunnel_.push_back(tunnel);
@@ -2808,6 +2813,16 @@ RMObject* Road::GetRoadObject(idx_t idx) const
     }
 
     return object_[idx];
+}
+
+const RMObjectDefinition* Road::GetObjectDefinition(idx_t idx) const
+{
+    if (idx >= object_definitions_.size())
+    {
+        return nullptr;
+    }
+
+    return &object_definitions_[idx];
 }
 
 OutlineCornerRoad::OutlineCornerRoad(id_t   roadId,
@@ -4977,28 +4992,74 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 std::string          type_str = object.attribute("type").value();
                 RMObject::ObjectType type     = RMObject::Str2Type(type_str);
 
+                auto get_optional_double = [](const pugi::xml_node& node, const char* attr_name) -> std::optional<double>
+                {
+                    pugi::xml_attribute attr = node.attribute(attr_name);
+                    return attr.empty() ? std::nullopt : std::optional<double>(attr.as_double());
+                };
+                auto get_optional_string = [](const pugi::xml_node& node, const char* attr_name) -> std::optional<std::string>
+                {
+                    pugi::xml_attribute attr = node.attribute(attr_name);
+                    return attr.empty() ? std::nullopt : std::optional<std::string>(attr.value());
+                };
+                auto parse_roadmark_color_string = [](std::string color_name) -> std::optional<RoadMarkColor>
+                {
+                    std::transform(color_name.begin(),
+                                   color_name.end(),
+                                   color_name.begin(),
+                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                    if (color_name == "standard")
+                        return RoadMarkColor::STANDARD;
+                    if (color_name == "blue")
+                        return RoadMarkColor::BLUE;
+                    if (color_name == "green")
+                        return RoadMarkColor::GREEN;
+                    if (color_name == "red")
+                        return RoadMarkColor::RED;
+                    if (color_name == "white")
+                        return RoadMarkColor::WHITE;
+                    if (color_name == "yellow")
+                        return RoadMarkColor::YELLOW;
+                    if (color_name == "orange")
+                        return RoadMarkColor::ORANGE;
+                    if (color_name == "violet")
+                        return RoadMarkColor::VIOLET;
+                    if (color_name == "black")
+                        return RoadMarkColor::BLACK;
+
+                    return std::nullopt;
+                };
+
+                RMObjectDefinition object_definition;
+                object_definition.id          = ids;
+                object_definition.name        = name;
+                object_definition.type        = type_str;
+                object_definition.s           = s;
+                object_definition.t           = t;
+                object_definition.orientation = orientation;
+
                 double length = object.attribute("length").as_double();
                 double width  = object.attribute("width").as_double();
                 double radius = object.attribute("radius").as_double();
+
+                object_definition.length = get_optional_double(object, "length");
+                object_definition.width  = get_optional_double(object, "width");
+                object_definition.radius = get_optional_double(object, "radius");
 
                 if (!object.attribute("radius").empty())
                 {
                     if (!object.attribute("length").empty() || !object.attribute("width").empty())
                     {
-                        LOG_WARN("Found object {} radius {:.2f}. Circular objects not supported yet. Using length and width attributes instead",
+                        LOG_WARN("Found object {} with both radius {:.2f} and width/length. Radius takes precedence; width/length set to {:.2f}",
                                  name,
-                                 radius);
+                                 radius,
+                                 2 * radius);
                     }
-                    else
-                    {
-                        LOG_WARN(
-                            "Found object {} radius {:.2f}. Circular objects not supported yet. Setting length and width attributes to 2 * radius = {:.2f}",
-                            name,
-                            radius,
-                            2 * radius);
-                        width  = 2 * radius;
-                        length = 2 * radius;
-                    }
+                    width                    = 2 * radius;
+                    length                   = 2 * radius;
+                    object_definition.width  = width;
+                    object_definition.length = length;
                 }
 
                 double z_offset = object.attribute("zOffset").as_double();
@@ -5007,11 +5068,32 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 double pitch    = object.attribute("pitch").as_double();
                 double roll     = object.attribute("roll").as_double();
 
+                object_definition.zOffset = z_offset;
+                object_definition.hdg     = heading;
+                object_definition.pitch   = pitch;
+                object_definition.roll    = roll;
+                object_definition.height  = get_optional_double(object, "height");
+
+                // Parse object material defaults used by markings (OpenDRIVE 13.5).
+                for (pugi::xml_node material_node = object.child("material"); material_node; material_node = material_node.next_sibling("material"))
+                {
+                    pugi::xml_attribute roadmark_color_attr = material_node.attribute("roadMarkColor");
+                    if (!roadmark_color_attr.empty())
+                    {
+                        std::optional<RoadMarkColor> parsed_color = parse_roadmark_color_string(roadmark_color_attr.as_string());
+                        if (parsed_color.has_value())
+                        {
+                            object_definition.roadMarkColor = parsed_color.value();
+                        }
+                    }
+                }
+
                 // Read any repeat elements
 
                 std::vector<Repeat*> Repeats;
                 for (pugi::xml_node repeat_node = object.child("repeat"); repeat_node; repeat_node = repeat_node.next_sibling("repeat"))
                 {
+                    const bool  has_outlines = object.child("outlines") != nullptr;
                     std::string rattr;
                     double      rs = (rattr = ReadAttribute(repeat_node, "s", true)) == "" ? 0.0 : std::stod(rattr);
                     if (rs > r->GetLength() - SMALL_NUMBER)
@@ -5019,21 +5101,97 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         LOG_ERROR("Repeat s value {:.2f} beyond road length {:.2f}, ignoring", rs, r->GetLength());
                         continue;
                     }
-                    double rlength       = (rattr = ReadAttribute(repeat_node, "length", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rdistance     = (rattr = ReadAttribute(repeat_node, "distance", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rtStart       = (rattr = ReadAttribute(repeat_node, "tStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rtEnd         = (rattr = ReadAttribute(repeat_node, "tEnd", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rheightStart  = (rattr = ReadAttribute(repeat_node, "heightStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rheightEnd    = (rattr = ReadAttribute(repeat_node, "heightEnd", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rzOffsetStart = (rattr = ReadAttribute(repeat_node, "zOffsetStart", true)) == "" ? 0.0 : std::stod(rattr);
-                    double rzOffsetEnd   = (rattr = ReadAttribute(repeat_node, "zOffsetEnd", true)) == "" ? 0.0 : std::stod(rattr);
+                    double       rlength       = (rattr = ReadAttribute(repeat_node, "length", true)) == "" ? 0.0 : std::stod(rattr);
+                    double       rdistance     = (rattr = ReadAttribute(repeat_node, "distance", true)) == "" ? 0.0 : std::stod(rattr);
+                    const double parent_radius = object_definition.radius.value_or(0.0);
 
-                    double rwidthStart  = (rattr = ReadAttribute(repeat_node, "widthStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rwidthEnd    = (rattr = ReadAttribute(repeat_node, "widthEnd", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rlengthStart = (rattr = ReadAttribute(repeat_node, "lengthStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rlengthEnd   = (rattr = ReadAttribute(repeat_node, "lengthEnd", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rradiusStart = (rattr = ReadAttribute(repeat_node, "radiusStart", false)) == "" ? 0.0 : std::stod(rattr);
-                    double rradiusEnd   = (rattr = ReadAttribute(repeat_node, "radiusEnd", false)) == "" ? 0.0 : std::stod(rattr);
+                    double rtStart = (rattr = ReadAttribute(repeat_node, "tStart", has_outlines ? true : false)) == "" ? (has_outlines ? 0.0 : t)
+                                                                                                                       : std::stod(rattr);
+                    double rtEnd =
+                        (rattr = ReadAttribute(repeat_node, "tEnd", has_outlines ? true : false)) == "" ? (has_outlines ? 0.0 : t) : std::stod(rattr);
+                    double rheightStart  = (rattr = ReadAttribute(repeat_node, "heightStart", has_outlines ? true : false)) == ""
+                                               ? (has_outlines ? 0.0 : height)
+                                               : std::stod(rattr);
+                    double rheightEnd    = (rattr = ReadAttribute(repeat_node, "heightEnd", has_outlines ? true : false)) == ""
+                                               ? (has_outlines ? 0.0 : height)
+                                               : std::stod(rattr);
+                    double rzOffsetStart = (rattr = ReadAttribute(repeat_node, "zOffsetStart", has_outlines ? true : false)) == ""
+                                               ? (has_outlines ? 0.0 : z_offset)
+                                               : std::stod(rattr);
+                    double rzOffsetEnd   = (rattr = ReadAttribute(repeat_node, "zOffsetEnd", has_outlines ? true : false)) == ""
+                                               ? (has_outlines ? 0.0 : z_offset)
+                                               : std::stod(rattr);
+
+                    double     rwidthStart  = (rattr = ReadAttribute(repeat_node, "widthStart", false)) == "" ? width : std::stod(rattr);
+                    double     rwidthEnd    = (rattr = ReadAttribute(repeat_node, "widthEnd", false)) == "" ? width : std::stod(rattr);
+                    double     rlengthStart = (rattr = ReadAttribute(repeat_node, "lengthStart", false)) == "" ? length : std::stod(rattr);
+                    double     rlengthEnd   = (rattr = ReadAttribute(repeat_node, "lengthEnd", false)) == "" ? length : std::stod(rattr);
+                    double     rradiusStart = (rattr = ReadAttribute(repeat_node, "radiusStart", false)) == "" ? parent_radius : std::stod(rattr);
+                    double     rradiusEnd   = (rattr = ReadAttribute(repeat_node, "radiusEnd", false)) == "" ? parent_radius : std::stod(rattr);
+                    const bool has_repeat_radius = !repeat_node.attribute("radiusStart").empty() || !repeat_node.attribute("radiusEnd").empty();
+                    const bool has_parent_radius = object_definition.radius.has_value();
+                    if ((has_repeat_radius || has_parent_radius) && !has_outlines)
+                    {
+                        rwidthStart  = 2 * rradiusStart;
+                        rwidthEnd    = 2 * rradiusEnd;
+                        rlengthStart = 2 * rradiusStart;
+                        rlengthEnd   = 2 * rradiusEnd;
+                    }
+
+                    RMRepeatDefinition repeat_definition;
+                    repeat_definition.s        = rs;
+                    repeat_definition.length   = rlength;
+                    repeat_definition.distance = rdistance;
+                    if (has_outlines)
+                    {
+                        // Keep omitted repeat attributes unset for outline-driven objects.
+                        repeat_definition.tStart       = get_optional_double(repeat_node, "tStart");
+                        repeat_definition.tEnd         = get_optional_double(repeat_node, "tEnd");
+                        repeat_definition.heightStart  = get_optional_double(repeat_node, "heightStart");
+                        repeat_definition.heightEnd    = get_optional_double(repeat_node, "heightEnd");
+                        repeat_definition.zOffsetStart = get_optional_double(repeat_node, "zOffsetStart");
+                        repeat_definition.zOffsetEnd   = get_optional_double(repeat_node, "zOffsetEnd");
+                        repeat_definition.widthStart   = get_optional_double(repeat_node, "widthStart");
+                        repeat_definition.widthEnd     = get_optional_double(repeat_node, "widthEnd");
+                        repeat_definition.lengthStart  = get_optional_double(repeat_node, "lengthStart");
+                        repeat_definition.lengthEnd    = get_optional_double(repeat_node, "lengthEnd");
+                        repeat_definition.radiusStart  = get_optional_double(repeat_node, "radiusStart");
+                        repeat_definition.radiusEnd    = get_optional_double(repeat_node, "radiusEnd");
+                    }
+                    else
+                    {
+                        repeat_definition.tStart       = get_optional_double(repeat_node, "tStart").value_or(t);
+                        repeat_definition.tEnd         = get_optional_double(repeat_node, "tEnd").value_or(t);
+                        repeat_definition.heightStart  = get_optional_double(repeat_node, "heightStart").value_or(height);
+                        repeat_definition.heightEnd    = get_optional_double(repeat_node, "heightEnd").value_or(height);
+                        repeat_definition.zOffsetStart = get_optional_double(repeat_node, "zOffsetStart").value_or(z_offset);
+                        repeat_definition.zOffsetEnd   = get_optional_double(repeat_node, "zOffsetEnd").value_or(z_offset);
+                        repeat_definition.widthStart =
+                            get_optional_double(repeat_node, "widthStart").value_or(object_definition.width.value_or(width));
+                        repeat_definition.widthEnd = get_optional_double(repeat_node, "widthEnd").value_or(object_definition.width.value_or(width));
+                        repeat_definition.lengthStart =
+                            get_optional_double(repeat_node, "lengthStart").value_or(object_definition.length.value_or(length));
+                        repeat_definition.lengthEnd =
+                            get_optional_double(repeat_node, "lengthEnd").value_or(object_definition.length.value_or(length));
+                        repeat_definition.radiusStart = get_optional_double(repeat_node, "radiusStart");
+                        repeat_definition.radiusEnd   = get_optional_double(repeat_node, "radiusEnd");
+                        if (!repeat_definition.radiusStart.has_value() && has_parent_radius)
+                        {
+                            repeat_definition.radiusStart = object_definition.radius;
+                        }
+                        if (!repeat_definition.radiusEnd.has_value() && has_parent_radius)
+                        {
+                            repeat_definition.radiusEnd = object_definition.radius;
+                        }
+                    }
+                    if ((has_repeat_radius || has_parent_radius) && !has_outlines)
+                    {
+                        repeat_definition.widthStart  = 2 * rradiusStart;
+                        repeat_definition.widthEnd    = 2 * rradiusEnd;
+                        repeat_definition.lengthStart = 2 * rradiusStart;
+                        repeat_definition.lengthEnd   = 2 * rradiusEnd;
+                    }
+                    object_definition.repeats.push_back(repeat_definition);
 
                     if (obj == nullptr)
                     {
@@ -5057,27 +5215,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                            pos.GetY(),
                                            pos.GetZ(),
                                            pos.GetHRoad());
-                    }
-
-                    if (rdistance < SMALL_NUMBER)
-                    {
-                        Outline* outline = CreateContinuousRepeatOutline(r,
-                                                                         ids,
-                                                                         s,
-                                                                         t,
-                                                                         heading,
-                                                                         length,
-                                                                         rs,
-                                                                         rlength,
-                                                                         rwidthStart,
-                                                                         rwidthEnd,
-                                                                         rheightStart,
-                                                                         rheightEnd,
-                                                                         rtStart,
-                                                                         rtEnd,
-                                                                         rzOffsetStart,
-                                                                         rzOffsetEnd);
-                        obj->AddOutline(outline);
                     }
 
                     // Always add the repeat object, even if treated as outline - in case 3D model should be used in visualization
@@ -5136,36 +5273,178 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 {
                     for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
                     {
-                        id_t     id      = outline_node.attribute("id").as_uint();
-                        bool     closed  = !strcmp(outline_node.attribute("closed").value(), "true") ? true : false;
-                        Outline* outline = new Outline(id, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
+                        id_t                id      = outline_node.attribute("id").as_uint();
+                        bool                closed  = !strcmp(outline_node.attribute("closed").value(), "true") ? true : false;
+                        Outline*            outline = new Outline(id, Outline::FillType::FILL_TYPE_UNDEFINED, closed);
+                        RMOutlineDefinition outline_definition;
+                        outline_definition.id       = id;
+                        outline_definition.closed   = closed;
+                        outline_definition.fillType = Outline::FillType::FILL_TYPE_UNDEFINED;
 
                         for (pugi::xml_node corner_node = outline_node.first_child(); corner_node; corner_node = corner_node.next_sibling())
                         {
-                            OutlineCorner* corner = 0;
+                            OutlineCorner*            corner = 0;
+                            RMOutlineCornerDefinition corner_definition;
+                            corner_definition.id = corner_node.attribute("id").as_uint(ID_UNDEFINED);
 
                             if (!strcmp(corner_node.name(), "cornerRoad"))
                             {
-                                double sc      = atof(corner_node.attribute("s").value());
-                                double tc      = atof(corner_node.attribute("t").value());
-                                double dz      = atof(corner_node.attribute("dz").value());
-                                double heightc = atof(corner_node.attribute("height").value());
+                                corner_definition.coordSystem = RMCornerCoordSystem::ROAD;
+                                corner_definition.s           = get_optional_double(corner_node, "s");
+                                corner_definition.t           = get_optional_double(corner_node, "t");
+                                corner_definition.dz          = get_optional_double(corner_node, "dz");
+                                corner_definition.height      = get_optional_double(corner_node, "height");
+
+                                double sc      = corner_definition.s.value_or(0.0);
+                                double tc      = corner_definition.t.value_or(0.0);
+                                double dz      = corner_definition.dz.value_or(0.0);
+                                double heightc = corner_definition.height.value_or(0.0);
 
                                 corner = static_cast<OutlineCorner*>(new OutlineCornerRoad(r->GetId(), sc, tc, dz, heightc, s, t, heading));
                             }
                             else if (!strcmp(corner_node.name(), "cornerLocal"))
                             {
-                                double u       = atof(corner_node.attribute("u").value());
-                                double v       = atof(corner_node.attribute("v").value());
-                                double zLocal  = atof(corner_node.attribute("z").value());
-                                double heightc = atof(corner_node.attribute("height").value());
+                                corner_definition.coordSystem = RMCornerCoordSystem::LOCAL;
+                                corner_definition.u           = get_optional_double(corner_node, "u");
+                                corner_definition.v           = get_optional_double(corner_node, "v");
+                                corner_definition.zLocal      = get_optional_double(corner_node, "z");
+                                corner_definition.height      = get_optional_double(corner_node, "height");
+
+                                double u       = corner_definition.u.value_or(0.0);
+                                double v       = corner_definition.v.value_or(0.0);
+                                double zLocal  = corner_definition.zLocal.value_or(0.0);
+                                double heightc = corner_definition.height.value_or(0.0);
 
                                 corner = static_cast<OutlineCorner*>(
                                     new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
                             }
+
+                            if (corner)
+                            {
+                                outline_definition.corners.push_back(corner_definition);
+                            }
                             outline->AddCorner(corner);
                         }
+                        object_definition.outlines.push_back(outline_definition);
                         obj->AddOutline(outline);
+                    }
+                }
+
+                pugi::xml_node markings_node = object.child("markings");
+                if (markings_node != NULL)
+                {
+                    for (pugi::xml_node marking_node = markings_node.child("marking"); marking_node;
+                         marking_node                = marking_node.next_sibling("marking"))
+                    {
+                        RMObjectMarkingDefinition marking_definition;
+                        marking_definition.id            = marking_node.attribute("id").as_uint(ID_UNDEFINED);
+                        marking_definition.type          = marking_node.attribute("type").as_string();
+                        marking_definition.width         = get_optional_double(marking_node, "width");
+                        marking_definition.length        = get_optional_double(marking_node, "length");
+                        marking_definition.lineLength    = get_optional_double(marking_node, "lineLength");
+                        marking_definition.spaceLength   = get_optional_double(marking_node, "spaceLength");
+                        marking_definition.startOffset   = get_optional_double(marking_node, "startOffset");
+                        marking_definition.stopOffset    = get_optional_double(marking_node, "stopOffset");
+                        marking_definition.zOffset       = get_optional_double(marking_node, "zOffset");
+                        marking_definition.color         = get_optional_string(marking_node, "color");
+                        marking_definition.placementMode = marking_node.attribute("placementMode").as_string();
+
+                        std::optional<std::string> side_attr = get_optional_string(marking_node, "side");
+                        if (side_attr.has_value())
+                        {
+                            std::string side_tokens = side_attr.value();
+                            std::replace_if(
+                                side_tokens.begin(),
+                                side_tokens.end(),
+                                [](char ch) { return ch == ',' || ch == ';' || ch == '|'; },
+                                ' ');
+
+                            std::stringstream ss(side_tokens);
+                            std::string       side_token;
+                            while (ss >> side_token)
+                            {
+                                std::transform(side_token.begin(),
+                                               side_token.end(),
+                                               side_token.begin(),
+                                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+                                if (side_token == "front")
+                                {
+                                    marking_definition.sides.push_back(RMObjectMarkingDefinition::Side::FRONT);
+                                }
+                                else if (side_token == "left")
+                                {
+                                    marking_definition.sides.push_back(RMObjectMarkingDefinition::Side::LEFT);
+                                }
+                                else if (side_token == "rear" || side_token == "back")
+                                {
+                                    marking_definition.sides.push_back(RMObjectMarkingDefinition::Side::REAR);
+                                }
+                                else if (side_token == "right")
+                                {
+                                    marking_definition.sides.push_back(RMObjectMarkingDefinition::Side::RIGHT);
+                                }
+                                else
+                                {
+                                    try
+                                    {
+                                        size_t token_end = 0;
+                                        int    edge_idx  = std::stoi(side_token, &token_end);
+                                        if (token_end == side_token.size())
+                                        {
+                                            marking_definition.edgeReferences.push_back(edge_idx);
+                                        }
+                                    }
+                                    catch (...)
+                                    {
+                                    }
+                                }
+                            }
+                        }
+
+                        std::optional<std::string> corner_ref_attr = get_optional_string(marking_node, "cornerReference");
+                        if (corner_ref_attr.has_value())
+                        {
+                            std::string corner_tokens = corner_ref_attr.value();
+                            std::replace_if(
+                                corner_tokens.begin(),
+                                corner_tokens.end(),
+                                [](char ch) { return ch == ',' || ch == ';' || ch == '|'; },
+                                ' ');
+
+                            std::stringstream ss(corner_tokens);
+                            std::string       token;
+                            while (ss >> token)
+                            {
+                                try
+                                {
+                                    size_t token_end  = 0;
+                                    int    corner_idx = std::stoi(token, &token_end);
+                                    if (token_end == token.size())
+                                    {
+                                        marking_definition.cornerReferences.push_back(corner_idx);
+                                    }
+                                }
+                                catch (...)
+                                {
+                                }
+                            }
+                        }
+
+                        for (const auto& corner_ref_node : marking_node.children("cornerReference"))
+                        {
+                            if (!corner_ref_node.attribute("id").empty())
+                            {
+                                marking_definition.cornerReferences.push_back(corner_ref_node.attribute("id").as_int());
+                            }
+                        }
+
+                        if (!marking_definition.color.has_value() && object_definition.roadMarkColor.has_value())
+                        {
+                            marking_definition.color = LaneRoadMark::RoadMarkColor2Str(object_definition.roadMarkColor.value());
+                        }
+
+                        object_definition.markings.push_back(marking_definition);
                     }
                 }
 
@@ -5216,6 +5495,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     std::string restrictions = parking_space_node.attribute("restrictions").value();
 
                     obj->SetParkingSpace(roadmanager::ParkingSpace(access, restrictions));
+                    object_definition.parkingSpace = roadmanager::ParkingSpace(access, restrictions);
                 }
 
                 for (pugi::xml_node validity_node = object.child("validity"); validity_node; validity_node = validity_node.next_sibling("validity"))
@@ -5224,10 +5504,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     validity.fromLane_ = atoi(validity_node.attribute("fromLane").value());
                     validity.toLane_   = atoi(validity_node.attribute("toLane").value());
                     obj->validity_.push_back(validity);
+                    object_definition.validity.push_back(validity);
                 }
 
                 if (obj != NULL)
                 {
+                    r->AddObjectDefinition(object_definition);
                     r->AddObject(obj);
                 }
                 else
@@ -6706,89 +6988,6 @@ id_t OpenDrive::LookupJunctionIdFromStr(std::string id_str)
     }
 
     return id;
-}
-
-Outline* roadmanager::OpenDrive::CreateContinuousRepeatOutline(Road*  r,
-                                                               id_t   ids,
-                                                               double s,
-                                                               double t,
-                                                               double heading,
-                                                               double length,
-                                                               double rs,
-                                                               double rlength,
-                                                               double rwidthStart,
-                                                               double rwidthEnd,
-                                                               double rheightStart,
-                                                               double rheightEnd,
-                                                               double rtStart,
-                                                               double rtEnd,
-                                                               double rzOffsetStart,
-                                                               double rzOffsetEnd)
-{
-    // inter-distance is zero, treat as outline
-    Outline* outline = new Outline(ids, Outline::FillType::FILL_TYPE_UNDEFINED, true);
-    if (outline == nullptr)
-    {
-        LOG_ERROR("Failed to create outline {}", ids);
-        return nullptr;
-    }
-    else
-    {
-        outline->contourType_ = Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP;
-
-        const double max_segment_length = 10.0;
-
-        // find smallest value of length and rlength, but between SMALL_NUMBER and max_segment_length
-        double segment_length = max_segment_length;
-        if (length > SMALL_NUMBER && length < segment_length)
-        {
-            segment_length = length;
-        }
-        if (rlength > SMALL_NUMBER && rlength < segment_length)
-        {
-            segment_length = rlength;
-        }
-
-        unsigned int n_segments = static_cast<unsigned int>((MAX(1.0, rlength / segment_length)));
-
-        // Create outline polygon, visiting corners counter clockwise
-        for (unsigned int i = 0; i < 2; i++)
-        {
-            for (unsigned int j = 0; j < n_segments + 1; j++)
-            {
-                double       factor  = static_cast<double>((i == 0 ? j : (n_segments - j))) / n_segments;
-                const double min_dim = 0.05;
-                double       w_start = rwidthStart;
-                double       w_end   = rwidthEnd;
-                double       h_start = rheightStart;
-                double       h_end   = rheightEnd;
-
-                if (w_start < SMALL_NUMBER && w_end < SMALL_NUMBER)
-                {
-                    w_start = w_end = min_dim;
-                }
-                if (h_start < SMALL_NUMBER && h_end < SMALL_NUMBER)
-                {
-                    h_start = h_end = min_dim;
-                }
-
-                double         w_local = w_start + factor * (w_end - w_start);
-                OutlineCorner* corner  = static_cast<OutlineCorner*>(
-                    new OutlineCornerRoad(r->GetId(),
-                                          rs + factor * rlength,
-                                          rtStart + factor * (rtEnd - rtStart) + (i == 0 ? -w_local / 2.0 : w_local / 2.0),
-                                          rzOffsetStart + factor * (rzOffsetEnd - rzOffsetStart),
-                                          h_start + factor * (h_end - h_start),
-                                          s,
-                                          t,
-                                          heading));
-
-                outline->AddCorner(corner);
-            }
-        }
-    }
-
-    return outline;
 }
 
 id_t roadmanager::OpenDrive::GenerateRoadId()

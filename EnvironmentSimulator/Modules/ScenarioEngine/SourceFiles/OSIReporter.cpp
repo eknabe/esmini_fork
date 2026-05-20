@@ -13,10 +13,13 @@
 #include "CommonMini.hpp"
 #include "OSIReporter.hpp"
 #include "OSITrafficCommand.hpp"
+#include "RoadObjectExpansion.hpp"
 #include <cmath>
 #include <string>
 #include <utility>
 #include <array>
+#include <algorithm>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -89,6 +92,447 @@ static struct
 } obj_osi_external;
 
 using namespace scenarioengine;
+
+namespace
+{
+    constexpr double kMarkingDefaultWidth  = 0.12;
+    constexpr double kMarkingDefaultHeight = 0.02;
+    constexpr double kMarkingZLift         = 0.01;
+
+    uint64_t HashMix(uint64_t seed, uint64_t value)
+    {
+        seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+
+    uint64_t BuildExpandedStableId(const roadmanager::RMExpandedObject &exp, uint64_t tag, uint64_t index)
+    {
+        uint64_t id = 1469598103934665603ULL;
+        id          = HashMix(id, static_cast<uint64_t>(exp.sourceObjectId));
+        id          = HashMix(id, static_cast<uint64_t>(exp.kind));
+        id          = HashMix(id, static_cast<uint64_t>(exp.repeatIndex + 2));
+        id          = HashMix(id, static_cast<uint64_t>(exp.segmentIndex + 2));
+        id          = HashMix(id, static_cast<uint64_t>(exp.outlineIndex + 2));
+        id          = HashMix(id, tag);
+        id          = HashMix(id, index);
+        return id;
+    }
+
+    roadmanager::RMObject::ObjectType ResolveObjectType(const roadmanager::RMObjectDefinition &def)
+    {
+        return roadmanager::RMObject::Str2Type(def.type);
+    }
+
+    void SetODRClassification(osi3::StationaryObject                         *sobj,
+                              roadmanager::RMObject::ObjectType               obj_type,
+                              const std::optional<roadmanager::ParkingSpace> &parking_space,
+                              std::string                                    &src_ref_type)
+    {
+        if (obj_type == roadmanager::RMObject::ObjectType::POLE)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_POLE);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::TREE)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_TREE);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::VEGETATION)
+        {
+            sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_VEGETATION);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BARRIER)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BARRIER);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BUILDING)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BUILDING);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::PARKINGSPACE)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+            sobj->mutable_classification()->set_material(
+                osi3::StationaryObject_Classification_Material::StationaryObject_Classification_Material_MATERIAL_CONCRETE);
+            sobj->mutable_classification()->set_density(
+                osi3::StationaryObject_Classification_Density::StationaryObject_Classification_Density_DENSITY_SOLID);
+            sobj->mutable_classification()->set_color(osi3::StationaryObject_Classification_Color::StationaryObject_Classification_Color_COLOR_GREY);
+
+            if (parking_space.has_value() && !parking_space.value().GetRestrictions().empty())
+            {
+                sobj->add_source_reference()->add_identifier()->assign(parking_space.value().GetRestrictions());
+            }
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::OBSTACLE || obj_type == roadmanager::RMObject::ObjectType::RAILING ||
+                 obj_type == roadmanager::RMObject::ObjectType::PATCH || obj_type == roadmanager::RMObject::ObjectType::TRAFFICISLAND ||
+                 obj_type == roadmanager::RMObject::ObjectType::CROSSWALK || obj_type == roadmanager::RMObject::ObjectType::STREETLAMP ||
+                 obj_type == roadmanager::RMObject::ObjectType::GANTRY || obj_type == roadmanager::RMObject::ObjectType::SOUNDBARRIER ||
+                 obj_type == roadmanager::RMObject::ObjectType::WIND || obj_type == roadmanager::RMObject::ObjectType::ROADMARK)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BRIDGE)
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BRIDGE);
+            src_ref_type = "bridge";
+        }
+        else
+        {
+            sobj->mutable_classification()->set_type(osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN);
+        }
+    }
+
+    bool EdgeReferenceMatches(int edge_ref, size_t edge_index, size_t edge_count)
+    {
+        if (edge_ref >= 1 && edge_ref <= static_cast<int>(edge_count))
+        {
+            return edge_index == static_cast<size_t>(edge_ref - 1);
+        }
+        if (edge_ref >= 0 && edge_ref < static_cast<int>(edge_count))
+        {
+            return edge_index == static_cast<size_t>(edge_ref);
+        }
+
+        return false;
+    }
+
+    std::optional<size_t> ResolveCornerReferenceIndex(const roadmanager::RMOutlineDefinition *outline_def, int ref, size_t n)
+    {
+        if (n == 0)
+        {
+            return std::nullopt;
+        }
+
+        if (outline_def != nullptr)
+        {
+            const bool has_explicit_corner_ids = std::any_of(outline_def->corners.begin(),
+                                                             outline_def->corners.end(),
+                                                             [](const auto &corner_def) { return corner_def.id != ID_UNDEFINED; });
+
+            if (has_explicit_corner_ids)
+            {
+                if (ref < 0)
+                {
+                    return std::nullopt;
+                }
+
+                const id_t ref_id = static_cast<id_t>(ref);
+                for (size_t i = 0; i < outline_def->corners.size() && i < n; ++i)
+                {
+                    if (outline_def->corners[i].id == ref_id)
+                    {
+                        return i;
+                    }
+                }
+                return std::nullopt;
+            }
+        }
+
+        if (ref >= 0 && ref < static_cast<int>(n))
+        {
+            return static_cast<size_t>(ref);
+        }
+        if (ref > 0 && ref <= static_cast<int>(n))
+        {
+            return static_cast<size_t>(ref - 1);
+        }
+
+        return std::nullopt;
+    }
+
+    void SetPosFromRoadST(roadmanager::Position &pos, id_t road_id, double s, double t)
+    {
+        pos.SetTrackPosMode(road_id,
+                            s,
+                            t,
+                            roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::P_REL |
+                                roadmanager::Position::PosMode::R_REL);
+    }
+
+    std::vector<std::array<double, 3>> BuildOutlineCornersWorld(const roadmanager::Road                &road,
+                                                                const roadmanager::RMObjectDefinition  &def,
+                                                                const roadmanager::RMExpandedObject    &exp,
+                                                                const roadmanager::RMOutlineDefinition &outline,
+                                                                double                                 &avg_height)
+    {
+        std::vector<std::array<double, 3>> corners;
+        corners.reserve(outline.corners.size());
+
+        avg_height                           = 0.0;
+        const double          z_offset_delta = exp.zOffset - def.zOffset;
+        roadmanager::Position anchor_pos;
+        SetPosFromRoadST(anchor_pos, road.GetId(), exp.s, exp.t);
+        const double anchor_h = anchor_pos.GetH() + exp.hdg;
+
+        for (const auto &corner_def : outline.corners)
+        {
+            double x = 0.0;
+            double y = 0.0;
+            double z = 0.0;
+
+            if (corner_def.coordSystem == roadmanager::RMCornerCoordSystem::ROAD)
+            {
+                const double corner_s = corner_def.s.value_or(def.s);
+                const double corner_t = corner_def.t.value_or(def.t);
+                const double ds       = corner_s - def.s;
+                const double dt       = corner_t - def.t;
+
+                roadmanager::Position cp;
+                SetPosFromRoadST(cp, road.GetId(), exp.s + ds, exp.t + dt);
+                x = cp.GetX();
+                y = cp.GetY();
+                z = cp.GetZ() + corner_def.dz.value_or(0.0) + z_offset_delta;
+            }
+            else
+            {
+                const double u = corner_def.u.value_or(0.0);
+                const double v = corner_def.v.value_or(0.0);
+                double       rx{0.0};
+                double       ry{0.0};
+                RotateVec2D(u, v, anchor_h, rx, ry);
+
+                x = anchor_pos.GetX() + rx;
+                y = anchor_pos.GetY() + ry;
+                z = anchor_pos.GetZ() + corner_def.zLocal.value_or(0.0) + z_offset_delta;
+            }
+
+            corners.push_back({x, y, z});
+            avg_height += corner_def.height.value_or(0.0);
+        }
+
+        if (!outline.corners.empty())
+        {
+            avg_height /= static_cast<double>(outline.corners.size());
+        }
+
+        return corners;
+    }
+
+    std::vector<std::array<double, 3>> BuildBoxCornersWorld(const roadmanager::Road             &road,
+                                                            const roadmanager::RMExpandedObject &exp,
+                                                            double                              &z_center,
+                                                            double                              &yaw)
+    {
+        roadmanager::Position pos;
+        SetPosFromRoadST(pos, road.GetId(), exp.s, exp.t);
+
+        const double width  = std::max(0.05, exp.width.value_or(1.0));
+        const double length = std::max(0.05, exp.length.value_or(1.0));
+        const double z      = pos.GetZ() + exp.zOffset;
+        yaw                 = pos.GetH() + exp.hdg;
+        z_center            = z;
+
+        auto local_to_world = [&](double lx, double ly) -> std::array<double, 3>
+        {
+            double rx{0.0};
+            double ry{0.0};
+            RotateVec2D(lx, ly, yaw, rx, ry);
+            return {pos.GetX() + rx, pos.GetY() + ry, z};
+        };
+
+        // front-right, front-left, rear-left, rear-right
+        return {local_to_world(0.5 * length, -0.5 * width),
+                local_to_world(0.5 * length, 0.5 * width),
+                local_to_world(-0.5 * length, 0.5 * width),
+                local_to_world(-0.5 * length, -0.5 * width)};
+    }
+
+    void SetBaseFromWorldCorners(osi3::StationaryObject *sobj, const std::vector<std::array<double, 3>> &corners, double height, double fallback_yaw)
+    {
+        if (corners.size() < 3)
+        {
+            return;
+        }
+
+        double cx = 0.0;
+        double cy = 0.0;
+        double cz = 0.0;
+        for (const auto &c : corners)
+        {
+            cx += c[0];
+            cy += c[1];
+            cz += c[2];
+        }
+        cx /= static_cast<double>(corners.size());
+        cy /= static_cast<double>(corners.size());
+        cz /= static_cast<double>(corners.size());
+
+        double yaw = fallback_yaw;
+        if (corners.size() >= 4)
+        {
+            const double mx0 = 0.5 * (corners[0][0] + corners[1][0]);
+            const double my0 = 0.5 * (corners[0][1] + corners[1][1]);
+            const double mx1 = 0.5 * (corners[2][0] + corners[3][0]);
+            const double my1 = 0.5 * (corners[2][1] + corners[3][1]);
+            yaw              = std::atan2(my1 - my0, mx1 - mx0);
+        }
+
+        sobj->mutable_base()->mutable_position()->set_x(cx);
+        sobj->mutable_base()->mutable_position()->set_y(cy);
+        sobj->mutable_base()->mutable_position()->set_z(cz + 0.5 * height);
+        sobj->mutable_base()->mutable_orientation()->set_roll(0.0);
+        sobj->mutable_base()->mutable_orientation()->set_pitch(0.0);
+        sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(yaw));
+
+        const double cyaw = std::cos(yaw);
+        const double syaw = std::sin(yaw);
+        for (const auto &c : corners)
+        {
+            const double    dx  = c[0] - cx;
+            const double    dy  = c[1] - cy;
+            osi3::Vector2d *vec = sobj->mutable_base()->add_base_polygon();
+            vec->set_x(cyaw * dx + syaw * dy);
+            vec->set_y(-syaw * dx + cyaw * dy);
+        }
+
+        if (corners.size() >= 4)
+        {
+            const double width  = std::hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]);
+            const double length = std::hypot(corners[2][0] - corners[1][0], corners[2][1] - corners[1][1]);
+            sobj->mutable_base()->mutable_dimension()->set_width(width);
+            sobj->mutable_base()->mutable_dimension()->set_length(length);
+        }
+    }
+
+    struct MarkingEdge
+    {
+        std::array<double, 3> a;
+        std::array<double, 3> b;
+    };
+
+    std::vector<MarkingEdge> BuildSelectedEdges(const std::vector<std::array<double, 3>>     &corners,
+                                                const roadmanager::RMObjectMarkingDefinition &marking,
+                                                const roadmanager::RMOutlineDefinition       *outline_def)
+    {
+        std::vector<MarkingEdge> edges;
+
+        if (corners.size() < 2)
+        {
+            return edges;
+        }
+
+        if (marking.cornerReferences.size() >= 2)
+        {
+            for (size_t k = 0; k + 1 < marking.cornerReferences.size(); ++k)
+            {
+                const auto i_opt = ResolveCornerReferenceIndex(outline_def, marking.cornerReferences[k], corners.size());
+                const auto j_opt = ResolveCornerReferenceIndex(outline_def, marking.cornerReferences[k + 1], corners.size());
+                if (!i_opt.has_value() || !j_opt.has_value() || i_opt.value() == j_opt.value())
+                {
+                    continue;
+                }
+                edges.push_back({corners[i_opt.value()], corners[j_opt.value()]});
+            }
+            return edges;
+        }
+
+        std::vector<MarkingEdge> polygon_edges;
+        polygon_edges.reserve(corners.size());
+        for (size_t i = 0; i < corners.size(); ++i)
+        {
+            polygon_edges.push_back({corners[i], corners[(i + 1) % corners.size()]});
+        }
+
+        if (!marking.edgeReferences.empty())
+        {
+            for (size_t i = 0; i < polygon_edges.size(); ++i)
+            {
+                if (std::any_of(marking.edgeReferences.begin(),
+                                marking.edgeReferences.end(),
+                                [i, &polygon_edges](int ref) { return EdgeReferenceMatches(ref, i, polygon_edges.size()); }))
+                {
+                    edges.push_back(polygon_edges[i]);
+                }
+            }
+            return edges;
+        }
+
+        if (polygon_edges.size() != 4)
+        {
+            // Side mapping is only well-defined for canonical 4-edge shapes.
+            edges.assign(polygon_edges.begin(), polygon_edges.end());
+            return edges;
+        }
+
+        if (!marking.sides.empty())
+        {
+            for (const auto &side : marking.sides)
+            {
+                if (side == roadmanager::RMObjectMarkingDefinition::Side::FRONT)
+                {
+                    edges.push_back(polygon_edges[0]);
+                }
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::LEFT)
+                {
+                    edges.push_back(polygon_edges[1]);
+                }
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::REAR)
+                {
+                    edges.push_back(polygon_edges[2]);
+                }
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::RIGHT)
+                {
+                    edges.push_back(polygon_edges[3]);
+                }
+            }
+            return edges;
+        }
+
+        edges.assign(polygon_edges.begin(), polygon_edges.end());
+        return edges;
+    }
+
+    std::vector<std::pair<double, double>> BuildMarkingSegments(double total_length, const roadmanager::RMObjectMarkingDefinition &marking)
+    {
+        std::vector<std::pair<double, double>> segments;
+        if (total_length <= SMALL_NUMBER)
+        {
+            return segments;
+        }
+
+        const double start_offset = std::max(0.0, marking.startOffset.value_or(0.0));
+        const double stop_offset  = std::max(0.0, marking.stopOffset.value_or(0.0));
+        if (start_offset >= total_length)
+        {
+            return segments;
+        }
+
+        const double usable_end = std::max(start_offset, total_length - stop_offset);
+        if (usable_end <= start_offset + SMALL_NUMBER)
+        {
+            return segments;
+        }
+
+        const double line_length  = std::max(0.0, marking.lineLength.value_or(marking.length.value_or(0.0)));
+        const double space_length = std::max(0.0, marking.spaceLength.value_or(0.0));
+
+        if (line_length <= SMALL_NUMBER)
+        {
+            segments.push_back({start_offset, usable_end});
+            return segments;
+        }
+
+        if (space_length <= SMALL_NUMBER)
+        {
+            segments.push_back({start_offset, usable_end});
+            return segments;
+        }
+
+        const double stride = line_length + space_length;
+        double       cursor = start_offset;
+        while (cursor < usable_end - SMALL_NUMBER)
+        {
+            const double seg_end = std::min(cursor + line_length, usable_end);
+            if (seg_end > cursor + SMALL_NUMBER)
+            {
+                segments.push_back({cursor, seg_end});
+            }
+            cursor += stride;
+        }
+
+        return segments;
+    }
+}  // namespace
 
 static OSIGroundTruth      osiGroundTruth;
 static OSIRoadLane         osiRoadLane;
@@ -425,18 +869,247 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
         roadmanager::Road *road = opendrive->GetRoadByIdx(i);
         if (road)
         {
-            for (unsigned int j = 0; j < road->GetNumberOfObjects(); j++)
+            if (road->GetNumberOfObjectDefinitions() > 0)
             {
-                roadmanager::RMObject *object = road->GetRoadObject(j);
-                if (object)
+                std::unordered_map<id_t, const roadmanager::RMObjectDefinition *> def_map;
+                for (const auto &def : road->GetObjectDefinitions())
                 {
-                    if (UpdateOSIStationaryObjectODR(object))
+                    def_map[def.id] = &def;
+                }
+
+                const std::vector<roadmanager::RMExpandedObject> expanded = roadmanager::ExpandRoadObjectDefinitions(*road);
+                uint64_t                                         marking_counter{0};
+
+                for (const auto &exp : expanded)
+                {
+                    auto dit = def_map.find(exp.sourceObjectId);
+                    if (dit == def_map.end() || dit->second == nullptr)
                     {
-                        retval = -1;
+                        continue;
                     }
-                    else if (retval > -1)
+
+                    const roadmanager::RMObjectDefinition &def      = *dit->second;
+                    roadmanager::RMObject::ObjectType      obj_type = ResolveObjectType(def);
+
+                    // Create OSI stationary object from expanded object geometry.
+                    obj_osi_internal.sobj = obj_osi_internal.static_gt->add_stationary_object();
+
+                    auto source_reference = obj_osi_internal.sobj->add_source_reference();
+                    source_reference->set_type(SOURCE_REF_TYPE_ODR);
+                    std::string src_ref_type = "object";
+
+                    obj_osi_internal.sobj->mutable_id()->set_value(BuildExpandedStableId(exp, 1ULL, 0ULL));
+                    SetODRClassification(obj_osi_internal.sobj, obj_type, def.parkingSpace, src_ref_type);
+
+                    source_reference->add_identifier(fmt::format("object_type:{}", src_ref_type));
+                    source_reference->add_identifier(fmt::format("object_id:{}", def.id));
+
+                    const double base_height = std::max(0.01, exp.height.value_or(def.height.value_or(0.1)));
+                    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(base_height);
+                    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_width(
+                        std::max(0.01, exp.width.value_or(def.width.value_or(0.1))));
+                    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_length(
+                        std::max(0.01, exp.length.value_or(def.length.value_or(0.1))));
+
+                    bool has_explicit_shape = false;
+                    if (exp.has_world_corners)
+                    {
+                        roadmanager::Position z0_pos;
+                        roadmanager::Position z1_pos;
+                        SetPosFromRoadST(z0_pos, road->GetId(), exp.s, 0.0);
+                        SetPosFromRoadST(z1_pos, road->GetId(), exp.sEnd, 0.0);
+
+                        std::vector<std::array<double, 3>> corners = {
+                            {exp.world_corners[0].x, exp.world_corners[0].y, z0_pos.GetZ() + exp.zOffset},
+                            {exp.world_corners[1].x, exp.world_corners[1].y, z0_pos.GetZ() + exp.zOffset},
+                            {exp.world_corners[2].x, exp.world_corners[2].y, z1_pos.GetZ() + exp.zOffsetEnd},
+                            {exp.world_corners[3].x, exp.world_corners[3].y, z1_pos.GetZ() + exp.zOffsetEnd}};
+
+                        SetBaseFromWorldCorners(obj_osi_internal.sobj, corners, base_height, 0.0);
+                        has_explicit_shape = true;
+                    }
+                    else if (exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT && exp.outlineIndex >= 0 &&
+                             exp.outlineIndex < static_cast<int>(def.outlines.size()))
+                    {
+                        double avg_height{0.0};
+                        auto   corners = BuildOutlineCornersWorld(*road, def, exp, def.outlines[static_cast<size_t>(exp.outlineIndex)], avg_height);
+                        if (corners.size() >= 3)
+                        {
+                            if (avg_height > SMALL_NUMBER)
+                            {
+                                obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(avg_height);
+                            }
+
+                            roadmanager::Position anchor;
+                            SetPosFromRoadST(anchor, road->GetId(), exp.s, exp.t);
+                            SetBaseFromWorldCorners(obj_osi_internal.sobj,
+                                                    corners,
+                                                    obj_osi_internal.sobj->mutable_base()->dimension().height(),
+                                                    anchor.GetH() + exp.hdg);
+                            has_explicit_shape = true;
+                        }
+                    }
+
+                    if (!has_explicit_shape)
+                    {
+                        roadmanager::Position pos;
+                        SetPosFromRoadST(pos, road->GetId(), exp.s, exp.t);
+                        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_x(pos.GetX());
+                        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_y(pos.GetY());
+                        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_z(pos.GetZ() + exp.zOffset + 0.5 * base_height);
+                        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(exp.roll));
+                        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(exp.pitch));
+                        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(pos.GetH() + exp.hdg));
+                    }
+
+                    if (!def.name.empty())
+                    {
+                        obj_osi_internal.sobj->set_model_reference(def.name);
+                    }
+
+                    if (retval > -1)
                     {
                         retval++;
+                    }
+
+                    // Emit object markings as dedicated stationary objects using expanded geometry.
+                    if (def.markings.empty())
+                    {
+                        continue;
+                    }
+
+                    std::vector<std::array<double, 3>> corners;
+                    bool                               have_corners = false;
+
+                    if (exp.has_world_corners)
+                    {
+                        roadmanager::Position z0_pos;
+                        roadmanager::Position z1_pos;
+                        SetPosFromRoadST(z0_pos, road->GetId(), exp.s, 0.0);
+                        SetPosFromRoadST(z1_pos, road->GetId(), exp.sEnd, 0.0);
+                        corners      = {{exp.world_corners[0].x, exp.world_corners[0].y, z0_pos.GetZ() + exp.zOffset},
+                                        {exp.world_corners[1].x, exp.world_corners[1].y, z0_pos.GetZ() + exp.zOffset},
+                                        {exp.world_corners[2].x, exp.world_corners[2].y, z1_pos.GetZ() + exp.zOffsetEnd},
+                                        {exp.world_corners[3].x, exp.world_corners[3].y, z1_pos.GetZ() + exp.zOffsetEnd}};
+                        have_corners = true;
+                    }
+                    else if (exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT && exp.outlineIndex >= 0 &&
+                             exp.outlineIndex < static_cast<int>(def.outlines.size()))
+                    {
+                        double outline_avg_height{0.0};
+                        corners = BuildOutlineCornersWorld(*road, def, exp, def.outlines[static_cast<size_t>(exp.outlineIndex)], outline_avg_height);
+                        if (corners.size() >= 2)
+                        {
+                            have_corners = true;
+                        }
+                    }
+                    else
+                    {
+                        double z_center{0.0};
+                        double yaw{0.0};
+                        corners      = BuildBoxCornersWorld(*road, exp, z_center, yaw);
+                        have_corners = corners.size() >= 2;
+                    }
+
+                    if (!have_corners)
+                    {
+                        continue;
+                    }
+
+                    for (const auto &marking : def.markings)
+                    {
+                        const roadmanager::RMOutlineDefinition *outline_def = nullptr;
+                        if (exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT && exp.outlineIndex >= 0 &&
+                            exp.outlineIndex < static_cast<int>(def.outlines.size()))
+                        {
+                            outline_def = &def.outlines[static_cast<size_t>(exp.outlineIndex)];
+                        }
+
+                        const auto edges = BuildSelectedEdges(corners, marking, outline_def);
+                        for (const auto &edge : edges)
+                        {
+                            const double dx         = edge.b[0] - edge.a[0];
+                            const double dy         = edge.b[1] - edge.a[1];
+                            const double dz         = edge.b[2] - edge.a[2];
+                            const double edge_len   = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            const auto   edge_spans = BuildMarkingSegments(edge_len, marking);
+
+                            for (const auto &span : edge_spans)
+                            {
+                                const double s0 = span.first;
+                                const double s1 = span.second;
+                                if (s1 <= s0 + SMALL_NUMBER)
+                                {
+                                    continue;
+                                }
+
+                                const double f0 = s0 / edge_len;
+                                const double f1 = s1 / edge_len;
+
+                                std::array<double, 3> p0 = {edge.a[0] + f0 * dx, edge.a[1] + f0 * dy, edge.a[2] + f0 * dz + kMarkingZLift};
+                                std::array<double, 3> p1 = {edge.a[0] + f1 * dx, edge.a[1] + f1 * dy, edge.a[2] + f1 * dz + kMarkingZLift};
+
+                                const double seg_dx     = p1[0] - p0[0];
+                                const double seg_dy     = p1[1] - p0[1];
+                                const double seg_len_xy = std::hypot(seg_dx, seg_dy);
+                                if (seg_len_xy <= SMALL_NUMBER)
+                                {
+                                    continue;
+                                }
+
+                                const double yaw        = std::atan2(seg_dy, seg_dx);
+                                const double cx         = 0.5 * (p0[0] + p1[0]);
+                                const double cy         = 0.5 * (p0[1] + p1[1]);
+                                const double cz         = 0.5 * (p0[2] + p1[2]);
+                                const double mark_width = std::max(0.01, marking.width.value_or(kMarkingDefaultWidth));
+
+                                obj_osi_internal.sobj = obj_osi_internal.static_gt->add_stationary_object();
+                                obj_osi_internal.sobj->mutable_id()->set_value(BuildExpandedStableId(exp, 2ULL, marking_counter++));
+                                obj_osi_internal.sobj->mutable_classification()->set_type(
+                                    osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+                                obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_length(seg_len_xy);
+                                obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_width(mark_width);
+                                obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(kMarkingDefaultHeight);
+                                obj_osi_internal.sobj->mutable_base()->mutable_position()->set_x(cx);
+                                obj_osi_internal.sobj->mutable_base()->mutable_position()->set_y(cy);
+                                obj_osi_internal.sobj->mutable_base()->mutable_position()->set_z(cz + 0.5 * kMarkingDefaultHeight);
+                                obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(0.0);
+                                obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(0.0);
+                                obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(yaw));
+
+                                auto mark_ref = obj_osi_internal.sobj->add_source_reference();
+                                mark_ref->set_type(SOURCE_REF_TYPE_ODR);
+                                mark_ref->add_identifier(fmt::format("object_type:roadmark"));
+                                mark_ref->add_identifier(fmt::format("object_id:{}", def.id));
+                                if (marking.id != ID_UNDEFINED)
+                                {
+                                    mark_ref->add_identifier(fmt::format("marking_id:{}", marking.id));
+                                }
+                                if (!marking.type.empty())
+                                {
+                                    mark_ref->add_identifier(fmt::format("marking_type:{}", marking.type));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Legacy fallback for roads without canonical object definitions.
+                for (unsigned int j = 0; j < road->GetNumberOfObjects(); j++)
+                {
+                    roadmanager::RMObject *object = road->GetRoadObject(j);
+                    if (object)
+                    {
+                        if (UpdateOSIStationaryObjectODR(object))
+                        {
+                            retval = -1;
+                        }
+                        else if (retval > -1)
+                        {
+                            retval++;
+                        }
                     }
                 }
             }

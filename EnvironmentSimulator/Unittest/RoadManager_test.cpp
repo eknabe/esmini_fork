@@ -3,8 +3,13 @@
 #include <gmock/gmock.h>
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
+#include <memory>
+#include <fstream>
 
 #include "RoadManager.hpp"
+#include "RoadObjectExpansion.hpp"
+#include "roadgeom.hpp"
 
 using namespace roadmanager;
 
@@ -4414,6 +4419,1026 @@ TEST(LaneOffset, TestGetClosestLaneIdxWithLaneOffsetAndLocKOnLane)
 
     EXPECT_EQ(pos.GetTrackId(), 1);
     EXPECT_EQ(pos.GetLaneId(), -2);
+}
+
+TEST(RoadObjectsRefactor, ParseObjectDefinitionsFromXmlString)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="obj_defs"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0">
+                <center><lane id="0" type="none" level="false"/></center>
+            </laneSection>
+        </lanes>
+        <objects>
+            <object id="100" name="test_obj" type="parkingSpace" s="10.0" t="1.5" zOffset="0.2" length="4.0" width="2.0" height="1.0" hdg="0.1" pitch="0.01" roll="0.02">
+                <material roadMarkColor="yellow"/>
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.5" tEnd="2.5" widthStart="2.0" widthEnd="2.2"/>
+                <outlines>
+                    <outline id="1" closed="true">
+                        <cornerRoad id="11" s="10.0" t="1.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="12" s="12.0" t="1.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="13" s="12.0" t="2.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="14" s="10.0" t="2.0" dz="0.0" height="0.2"/>
+                    </outline>
+                    <outline id="2" closed="true">
+                        <cornerLocal id="21" u="-1.0" v="-0.5" z="0.0" height="0.3"/>
+                        <cornerLocal id="22" u="1.0" v="-0.5" z="0.0" height="0.3"/>
+                        <cornerLocal id="23" u="1.0" v="0.5" z="0.0" height="0.3"/>
+                        <cornerLocal id="24" u="-1.0" v="0.5" z="0.0" height="0.3"/>
+                    </outline>
+                </outlines>
+                <markings>
+                    <marking id="9" type="paint" side="front,left|right" width="0.1" color="white" placementMode="edge-relative"/>
+                    <marking id="10" type="paint" side="1 3" width="0.1" placementMode="edge-relative"/>
+                    <marking id="11" type="paint" cornerReference="11 13" width="0.1" placementMode="edge-relative"/>
+                    <marking id="12" type="paint" width="0.1" placementMode="edge-relative">
+                        <cornerReference id="11"/>
+                        <cornerReference id="12"/>
+                        <cornerReference id="13"/>
+                        <cornerReference id="14"/>
+                    </marking>
+                    <marking id="13" type="paint" width="0.1" placementMode="edge-relative">
+                        <cornerReference id="11"/>
+                        <cornerReference id="12"/>
+                        <cornerReference id="13"/>
+                        <cornerReference id="14"/>
+                        <cornerReference id="11"/>
+                    </marking>
+                </markings>
+                <parkingSpace access="car" restrictions="permit"/>
+                <validity fromLane="-1" toLane="-1"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    ASSERT_EQ(odr.GetNumOfRoads(), 1u);
+
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+    ASSERT_EQ(road->GetNumberOfObjectDefinitions(), 1u);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+
+    EXPECT_EQ(def->id, 100);
+    EXPECT_EQ(def->name, "test_obj");
+    EXPECT_EQ(def->type, "parkingSpace");
+    EXPECT_EQ(def->repeats.size(), 1u);
+    EXPECT_EQ(def->outlines.size(), 2u);
+    EXPECT_EQ(def->markings.size(), 5u);
+    ASSERT_TRUE(def->parkingSpace.has_value());
+    EXPECT_EQ(def->validity.size(), 1u);
+    ASSERT_TRUE(def->roadMarkColor.has_value());
+    EXPECT_EQ(def->roadMarkColor.value(), RoadMarkColor::YELLOW);
+
+    ASSERT_EQ(def->outlines[0].corners.size(), 4u);
+    ASSERT_EQ(def->outlines[1].corners.size(), 4u);
+    EXPECT_EQ(def->outlines[0].corners[0].id, 11);
+    EXPECT_EQ(def->outlines[0].corners[1].id, 12);
+    EXPECT_EQ(def->outlines[1].corners[0].id, 21);
+    EXPECT_EQ(def->outlines[1].corners[1].id, 22);
+    EXPECT_EQ(def->outlines[0].corners[0].coordSystem, RMCornerCoordSystem::ROAD);
+    EXPECT_EQ(def->outlines[1].corners[0].coordSystem, RMCornerCoordSystem::LOCAL);
+
+    const RMObjectMarkingDefinition &marking = def->markings[0];
+    EXPECT_EQ(marking.id, 9);
+    EXPECT_EQ(marking.type, "paint");
+    ASSERT_EQ(marking.sides.size(), 3u);
+    EXPECT_NE(std::find(marking.sides.begin(), marking.sides.end(), RMObjectMarkingDefinition::Side::FRONT), marking.sides.end());
+    EXPECT_NE(std::find(marking.sides.begin(), marking.sides.end(), RMObjectMarkingDefinition::Side::LEFT), marking.sides.end());
+    EXPECT_NE(std::find(marking.sides.begin(), marking.sides.end(), RMObjectMarkingDefinition::Side::RIGHT), marking.sides.end());
+
+    const RMObjectMarkingDefinition &marking_by_edge = def->markings[1];
+    EXPECT_EQ(marking_by_edge.id, 10);
+    EXPECT_EQ(marking_by_edge.type, "paint");
+    ASSERT_EQ(marking_by_edge.edgeReferences.size(), 2u);
+    EXPECT_EQ(marking_by_edge.edgeReferences[0], 1);
+    EXPECT_EQ(marking_by_edge.edgeReferences[1], 3);
+    ASSERT_TRUE(marking_by_edge.color.has_value());
+    EXPECT_EQ(marking_by_edge.color.value(), "yellow");
+
+    const RMObjectMarkingDefinition &marking_by_corner = def->markings[2];
+    EXPECT_EQ(marking_by_corner.id, 11);
+    EXPECT_EQ(marking_by_corner.type, "paint");
+    ASSERT_EQ(marking_by_corner.cornerReferences.size(), 2u);
+    EXPECT_EQ(marking_by_corner.cornerReferences[0], 11);
+    EXPECT_EQ(marking_by_corner.cornerReferences[1], 13);
+
+    const RMObjectMarkingDefinition &marking_by_corner_nodes = def->markings[3];
+    EXPECT_EQ(marking_by_corner_nodes.id, 12);
+    EXPECT_EQ(marking_by_corner_nodes.type, "paint");
+    ASSERT_EQ(marking_by_corner_nodes.cornerReferences.size(), 4u);
+    EXPECT_EQ(marking_by_corner_nodes.cornerReferences[0], 11);
+    EXPECT_EQ(marking_by_corner_nodes.cornerReferences[1], 12);
+    EXPECT_EQ(marking_by_corner_nodes.cornerReferences[2], 13);
+    EXPECT_EQ(marking_by_corner_nodes.cornerReferences[3], 14);
+
+    const RMObjectMarkingDefinition &marking_by_corner_loop = def->markings[4];
+    EXPECT_EQ(marking_by_corner_loop.id, 13);
+    EXPECT_EQ(marking_by_corner_loop.type, "paint");
+    ASSERT_EQ(marking_by_corner_loop.cornerReferences.size(), 5u);
+    EXPECT_EQ(marking_by_corner_loop.cornerReferences[0], 11);
+    EXPECT_EQ(marking_by_corner_loop.cornerReferences[1], 12);
+    EXPECT_EQ(marking_by_corner_loop.cornerReferences[2], 13);
+    EXPECT_EQ(marking_by_corner_loop.cornerReferences[3], 14);
+    EXPECT_EQ(marking_by_corner_loop.cornerReferences[4], 11);
+}
+
+TEST(RoadObjectsRefactor, DebugDumpComparesLegacyAndDefinitionAnchors)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="debug_dump"/>
+    <road id="1" junction="-1" length="60.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="60.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="300" name="obj_a" type="barrier" s="5.0" t="1.0" zOffset="0.1" length="2.0" width="1.0" height="1.0"/>
+            <object id="301" name="obj_b" type="barrier" s="15.0" t="2.0" zOffset="0.2" length="2.0" width="1.0" height="1.0"/>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    ASSERT_GE(odr.GetNumOfRoads(), 1u);
+
+    std::string dump = BuildRoadObjectDebugDump(odr, 3);
+    EXPECT_NE(dump.find("RoadObjectDebugDump roads="), std::string::npos);
+    EXPECT_NE(dump.find("legacy_objects="), std::string::npos);
+    EXPECT_NE(dump.find("definitions="), std::string::npos);
+    EXPECT_NE(dump.find("expanded="), std::string::npos);
+}
+
+TEST(RoadObjectsRefactor, ExpandDiscreteRepeatInstances)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="discrete_repeat"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="200" name="repeat_obj" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.0" tEnd="3.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_EQ(expanded.size(), 5u);
+    for (size_t i = 0; i < expanded.size(); ++i)
+    {
+        EXPECT_EQ(expanded[i].kind, RMExpandedObject::Kind::DISCRETE_REPEAT_INSTANCE);
+        EXPECT_EQ(expanded[i].repeatIndex, 0);
+        EXPECT_EQ(expanded[i].segmentIndex, -1);
+        EXPECT_NEAR(expanded[i].s, 10.0 + 5.0 * static_cast<double>(i), 1e-9);
+        ASSERT_TRUE(expanded[i].width.has_value());
+        EXPECT_NEAR(expanded[i].width.value(), 1.0, 1e-9);
+    }
+    EXPECT_NEAR(expanded.front().t, 1.0, 1e-9);
+    EXPECT_NEAR(expanded.back().t, 3.0, 1e-9);
+}
+
+TEST(RoadObjectsRefactor, ExpandDiscreteRepeatWithOutlinesUsesOutlineObjects)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="repeat_outline"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="210" name="repeat_outline" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="2.0" tEnd="2.0"/>
+                <outlines>
+                    <outline id="53" closed="true">
+                        <cornerRoad s="11.0" t="2.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="14.0" t="2.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="16.0" t="4.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="12.0" t="4.0" dz="0.0" height="1.0"/>
+                    </outline>
+                    <outline id="54" closed="true">
+                        <cornerRoad s="11.0" t="-6.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="14.0" t="-6.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="16.0" t="-4.0" dz="0.0" height="1.0"/>
+                        <cornerRoad s="12.0" t="-4.0" dz="0.0" height="1.0"/>
+                    </outline>
+                </outlines>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    // repeat length 20 with distance 5 => 5 anchors, each with 2 outlines => 10 entries
+    ASSERT_EQ(expanded.size(), 10u);
+
+    for (size_t i = 0; i < expanded.size(); ++i)
+    {
+        EXPECT_EQ(expanded[i].kind, RMExpandedObject::Kind::OUTLINE_OBJECT);
+        EXPECT_EQ(expanded[i].repeatIndex, 0);
+        EXPECT_EQ(expanded[i].segmentIndex, -1);
+        EXPECT_TRUE(expanded[i].outlineIndex == 0 || expanded[i].outlineIndex == 1);
+    }
+}
+
+TEST(RoadObjectsRefactor, RepeatExpansionUnaffectedByModelLikeNames)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="repeat_model_names"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="240" name="cone-45" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
+                <repeat s="10.0" length="8.0" distance="4.0" tStart="0.0" tEnd="0.0"/>
+                <outlines>
+                    <outline id="1" closed="true">
+                        <cornerRoad s="10.0" t="-0.5" dz="0.0" height="1.0"/>
+                        <cornerRoad s="12.0" t="-0.5" dz="0.0" height="1.0"/>
+                        <cornerRoad s="12.0" t="0.5" dz="0.0" height="1.0"/>
+                        <cornerRoad s="10.0" t="0.5" dz="0.0" height="1.0"/>
+                    </outline>
+                </outlines>
+            </object>
+            <object id="241" name="cone-100.osgb" type="barrier" s="0.0" t="2.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
+                <repeat s="10.0" length="8.0" distance="4.0" tStart="2.0" tEnd="2.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+    ASSERT_EQ(road->GetNumberOfObjectDefinitions(), 2u);
+
+    const RMObjectDefinition *def0 = road->GetObjectDefinition(0);
+    const RMObjectDefinition *def1 = road->GetObjectDefinition(1);
+    ASSERT_NE(def0, nullptr);
+    ASSERT_NE(def1, nullptr);
+    EXPECT_EQ(def0->name, "cone-45");
+    EXPECT_EQ(def1->name, "cone-100.osgb");
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    // Both repeats create anchors at s={10,14,18}. First object has one outline, second has no outline.
+    ASSERT_EQ(expanded.size(), 6u);
+
+    int outline_count  = 0;
+    int discrete_count = 0;
+    for (const auto &obj : expanded)
+    {
+        if (obj.sourceObjectId == 240)
+        {
+            EXPECT_EQ(obj.kind, RMExpandedObject::Kind::OUTLINE_OBJECT);
+            ++outline_count;
+        }
+        else if (obj.sourceObjectId == 241)
+        {
+            EXPECT_EQ(obj.kind, RMExpandedObject::Kind::DISCRETE_REPEAT_INSTANCE);
+            ++discrete_count;
+        }
+    }
+
+    EXPECT_EQ(outline_count, 3);
+    EXPECT_EQ(discrete_count, 3);
+}
+
+TEST(RoadObjectsRefactor, RepeatMissingAttributesInheritParentObjectValues)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="repeat_inherit"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="220" name="repeat_inherit" type="barrier" s="0.0" t="3.5" zOffset="1.2" length="5.0" width="2.0" height="4.0" radius="2.5">
+                <repeat s="10.0" length="10.0" distance="5.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+    ASSERT_EQ(road->GetNumberOfObjectDefinitions(), 1u);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+    ASSERT_EQ(def->repeats.size(), 1u);
+
+    const RMRepeatDefinition &rep = def->repeats[0];
+    ASSERT_TRUE(rep.tStart.has_value());
+    ASSERT_TRUE(rep.tEnd.has_value());
+    ASSERT_TRUE(rep.heightStart.has_value());
+    ASSERT_TRUE(rep.heightEnd.has_value());
+    ASSERT_TRUE(rep.widthStart.has_value());
+    ASSERT_TRUE(rep.widthEnd.has_value());
+    ASSERT_TRUE(rep.lengthStart.has_value());
+    ASSERT_TRUE(rep.lengthEnd.has_value());
+    ASSERT_TRUE(rep.zOffsetStart.has_value());
+    ASSERT_TRUE(rep.zOffsetEnd.has_value());
+    ASSERT_TRUE(rep.radiusStart.has_value());
+    ASSERT_TRUE(rep.radiusEnd.has_value());
+
+    EXPECT_NEAR(rep.tStart.value(), 3.5, 1e-9);
+    EXPECT_NEAR(rep.tEnd.value(), 3.5, 1e-9);
+    EXPECT_NEAR(rep.heightStart.value(), 4.0, 1e-9);
+    EXPECT_NEAR(rep.heightEnd.value(), 4.0, 1e-9);
+    EXPECT_NEAR(rep.widthStart.value(), 5.0, 1e-9);
+    EXPECT_NEAR(rep.widthEnd.value(), 5.0, 1e-9);
+    EXPECT_NEAR(rep.lengthStart.value(), 5.0, 1e-9);
+    EXPECT_NEAR(rep.lengthEnd.value(), 5.0, 1e-9);
+    EXPECT_NEAR(rep.zOffsetStart.value(), 1.2, 1e-9);
+    EXPECT_NEAR(rep.zOffsetEnd.value(), 1.2, 1e-9);
+    EXPECT_NEAR(rep.radiusStart.value(), 2.5, 1e-9);
+    EXPECT_NEAR(rep.radiusEnd.value(), 2.5, 1e-9);
+}
+
+TEST(RoadObjectsRefactor, RadiusOverridesWidthAndLengthOnObjectAndRepeat)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="radius_override"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="230" name="radius_override" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="9.0" width="7.0" height="1.0" radius="1.5">
+                <repeat s="10.0" length="10.0" distance="10.0" widthStart="11.0" widthEnd="13.0" lengthStart="12.0" lengthEnd="14.0" radiusStart="1.0" radiusEnd="2.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+    ASSERT_EQ(road->GetNumberOfObjectDefinitions(), 1u);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+    ASSERT_TRUE(def->width.has_value());
+    ASSERT_TRUE(def->length.has_value());
+    EXPECT_NEAR(def->width.value(), 3.0, 1e-9);
+    EXPECT_NEAR(def->length.value(), 3.0, 1e-9);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_EQ(expanded.size(), 2u);
+    ASSERT_TRUE(expanded[0].width.has_value());
+    ASSERT_TRUE(expanded[0].length.has_value());
+    ASSERT_TRUE(expanded[1].width.has_value());
+    ASSERT_TRUE(expanded[1].length.has_value());
+
+    EXPECT_NEAR(expanded[0].width.value(), 2.0, 1e-9);
+    EXPECT_NEAR(expanded[0].length.value(), 2.0, 1e-9);
+    EXPECT_NEAR(expanded[1].width.value(), 4.0, 1e-9);
+    EXPECT_NEAR(expanded[1].length.value(), 4.0, 1e-9);
+}
+
+TEST(RoadObjectsRefactor, ExpandContinuousRepeatSegments)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="continuous_repeat"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="201" name="continuous_obj" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="1.0" height="1.0">
+                <repeat s="20.0" length="20.0" distance="0.0" tStart="-1.0" tEnd="1.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_EQ(expanded.size(), 5u);
+    for (size_t i = 0; i < expanded.size(); ++i)
+    {
+        EXPECT_EQ(expanded[i].kind, RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT);
+        EXPECT_EQ(expanded[i].repeatIndex, 0);
+        EXPECT_EQ(expanded[i].segmentIndex, static_cast<int>(i));
+        EXPECT_LE(expanded[i].s, expanded[i].sEnd + 1e-9);
+    }
+    EXPECT_NEAR(expanded.front().s, 20.0, 1e-9);
+    EXPECT_NEAR(expanded.back().sEnd, 40.0, 1e-9);
+    EXPECT_NEAR(expanded.front().t, -1.0, 1e-9);
+    EXPECT_NEAR(expanded.back().tEnd, 1.0, 1e-9);
+}
+
+TEST(RoadObjectsRefactor, EdgeStitchingMakesAdjacentCornersCoincident)
+{
+    // Circular-arc road so adjacent quad boundaries would diverge without stitching.
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="arc_road"/>
+    <road id="1" junction="-1" length="62.8318">
+        <planView>
+            <!-- quarter circle, radius 20 m => arc length ~ 31.416 m per quarter -->
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="62.8318"><arc curvature="0.05"/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="301" name="arc_barrier" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="2.0" height="1.0">
+                <repeat s="0.0" length="60.0" distance="0.0" tStart="0.0" tEnd="0.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_GT(expanded.size(), 1u);
+
+    // All continuous-segment entries must carry world corners after stitching.
+    for (const auto &seg : expanded)
+    {
+        EXPECT_EQ(seg.kind, RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT);
+        EXPECT_TRUE(seg.has_world_corners);
+    }
+
+    // Adjacent segments must share exact boundary vertices (the stitch point).
+    const double tol = 1e-9;
+    for (size_t i = 0; i + 1 < expanded.size(); ++i)
+    {
+        const auto &cur  = expanded[i];
+        const auto &next = expanded[i + 1];
+        // Positive-t shared vertex: cur.corners[2] == next.corners[1]
+        EXPECT_NEAR(cur.world_corners[2].x, next.world_corners[1].x, tol) << "Positive-t X mismatch at boundary " << i << "/" << i + 1;
+        EXPECT_NEAR(cur.world_corners[2].y, next.world_corners[1].y, tol) << "Positive-t Y mismatch at boundary " << i << "/" << i + 1;
+        // Negative-t shared vertex: cur.corners[3] == next.corners[0]
+        EXPECT_NEAR(cur.world_corners[3].x, next.world_corners[0].x, tol) << "Negative-t X mismatch at boundary " << i << "/" << i + 1;
+        EXPECT_NEAR(cur.world_corners[3].y, next.world_corners[0].y, tol) << "Negative-t Y mismatch at boundary " << i << "/" << i + 1;
+    }
+}
+
+TEST(RoadObjectsRefactor, ContinuousRepeatCarriesHeightEndpointsWithoutPlateaus)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="vary_height"/>
+    <road id="1" junction="-1" length="100.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="401" name="vary_height_obj" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="1.0" height="1.0">
+                <repeat s="20.0" length="20.0" distance="0.0" tStart="0.0" tEnd="0.0" heightStart="1.0" heightEnd="3.0"/>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_GT(expanded.size(), 1u);
+
+    EXPECT_TRUE(expanded.front().height.has_value());
+    EXPECT_TRUE(expanded.front().heightEnd.has_value());
+    EXPECT_TRUE(expanded.back().height.has_value());
+    EXPECT_TRUE(expanded.back().heightEnd.has_value());
+
+    EXPECT_NEAR(expanded.front().height.value(), 1.0, 1e-9);
+    EXPECT_NEAR(expanded.back().heightEnd.value(), 3.0, 1e-9);
+
+    for (size_t i = 0; i + 1 < expanded.size(); ++i)
+    {
+        ASSERT_TRUE(expanded[i].heightEnd.has_value());
+        ASSERT_TRUE(expanded[i + 1].height.has_value());
+        EXPECT_NEAR(expanded[i].heightEnd.value(), expanded[i + 1].height.value(), 1e-9);
+    }
+}
+
+TEST(RoadObjectsRefactor, RepeatedCornerRoadOutlineInstancesSpanCurvedRoad)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="repeat_cornerroad_curved"/>
+    <road id="1" junction="-1" length="80.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="80.0"><arc curvature="0.02"/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="501" name="curved_repeat_outline" type="barrier" s="6.0" t="0.0" zOffset="0.0" length="4.0" width="2.0" height="1.0">
+                <repeat s="10.0" length="40.0" distance="10.0" tStart="1.0" tEnd="1.0"/>
+                <outlines>
+                    <outline id="91" closed="true">
+                        <cornerRoad id="11" s="6.0" t="-1.0" dz="0.0" height="0.1"/>
+                        <cornerRoad id="12" s="10.0" t="-1.0" dz="0.0" height="0.1"/>
+                        <cornerRoad id="13" s="10.0" t="1.0" dz="0.0" height="0.1"/>
+                        <cornerRoad id="14" s="6.0" t="1.0" dz="0.0" height="0.1"/>
+                    </outline>
+                </outlines>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+    ASSERT_EQ(road->GetNumberOfObjectDefinitions(), 1u);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+    ASSERT_EQ(def->outlines.size(), 1u);
+    ASSERT_EQ(def->outlines[0].corners.size(), 4u);
+    EXPECT_EQ(def->outlines[0].corners[0].coordSystem, RMCornerCoordSystem::ROAD);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    // repeat length 40 with distance 10 => anchors at 10,20,30,40,50
+    ASSERT_EQ(expanded.size(), 5u);
+    for (const auto &obj : expanded)
+    {
+        EXPECT_EQ(obj.kind, RMExpandedObject::Kind::OUTLINE_OBJECT);
+        EXPECT_EQ(obj.repeatIndex, 0);
+        EXPECT_EQ(obj.outlineIndex, 0);
+        EXPECT_NEAR(obj.t, 1.0, 1e-9);
+    }
+
+    EXPECT_NEAR(expanded.front().s, 10.0, 1e-9);
+    EXPECT_NEAR(expanded.back().s, 50.0, 1e-9);
+
+    // Curved road sanity check: geometry heading differs between first/last repeated anchor.
+    Geometry *geom = road->GetGeometry(0);
+    ASSERT_NE(geom, nullptr);
+    double x0 = 0.0, y0 = 0.0, h0 = 0.0;
+    double x1 = 0.0, y1 = 0.0, h1 = 0.0;
+    geom->EvaluateDS(expanded.front().s - geom->GetS(), &x0, &y0, &h0);
+    geom->EvaluateDS(expanded.back().s - geom->GetS(), &x1, &y1, &h1);
+    EXPECT_GT(std::fabs(h1 - h0), 0.1);
+}
+
+TEST(RoadObjectsRefactor, MixedCornerRoadAndCornerLocalDiscreteRepeatExpandsPerOutline)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="mixed_corner_repeat"/>
+    <road id="1" junction="-1" length="80.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="80.0"><line/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="502" name="mixed_outline_repeat" type="parkingSpace" s="8.0" t="0.0" zOffset="0.0" length="4.0" width="2.0" height="1.0">
+                <repeat s="10.0" length="10.0" distance="5.0" tStart="2.0" tEnd="2.0"/>
+                <outlines>
+                    <outline id="101" closed="true">
+                        <cornerRoad id="11" s="8.0" t="-1.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="12" s="12.0" t="-1.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="13" s="12.0" t="1.0" dz="0.0" height="0.2"/>
+                        <cornerRoad id="14" s="8.0" t="1.0" dz="0.0" height="0.2"/>
+                    </outline>
+                    <outline id="102" closed="true">
+                        <cornerLocal id="21" u="-2.0" v="-1.0" z="0.0" height="0.3"/>
+                        <cornerLocal id="22" u="2.0" v="-1.0" z="0.0" height="0.3"/>
+                        <cornerLocal id="23" u="2.0" v="1.0" z="0.0" height="0.3"/>
+                        <cornerLocal id="24" u="-2.0" v="1.0" z="0.0" height="0.3"/>
+                    </outline>
+                </outlines>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+    ASSERT_EQ(def->outlines.size(), 2u);
+    EXPECT_EQ(def->outlines[0].corners[0].coordSystem, RMCornerCoordSystem::ROAD);
+    EXPECT_EQ(def->outlines[1].corners[0].coordSystem, RMCornerCoordSystem::LOCAL);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    // Anchors at s=10,15,20 => 3 anchors * 2 outlines = 6 outline objects.
+    ASSERT_EQ(expanded.size(), 6u);
+
+    int outline0_count = 0;
+    int outline1_count = 0;
+    for (const auto &obj : expanded)
+    {
+        EXPECT_EQ(obj.kind, RMExpandedObject::Kind::OUTLINE_OBJECT);
+        EXPECT_EQ(obj.repeatIndex, 0);
+        EXPECT_TRUE(obj.outlineIndex == 0 || obj.outlineIndex == 1);
+        if (obj.outlineIndex == 0)
+        {
+            ++outline0_count;
+        }
+        else
+        {
+            ++outline1_count;
+        }
+    }
+
+    EXPECT_EQ(outline0_count, 3);
+    EXPECT_EQ(outline1_count, 3);
+}
+
+TEST(RoadObjectsRefactor, ContinuousRepeatPreservesMarkingReferencesAndWorldCorners)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="utf-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="continuous_marking_refs"/>
+    <road id="1" junction="-1" length="80.0">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="80.0"><arc curvature="0.02"/></geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0"><center><lane id="0" type="none" level="false"/></center></laneSection>
+        </lanes>
+        <objects>
+            <object id="503" name="continuous_refs" type="parkingSpace" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="2.5" height="0.2">
+                <repeat s="10.0" length="20.0" distance="0.0" tStart="1.5" tEnd="2.0"/>
+                <outlines>
+                    <outline id="103" closed="true">
+                        <cornerRoad id="11" s="10.0" t="1.0" dz="0.0" height="0.0"/>
+                        <cornerRoad id="12" s="14.0" t="1.0" dz="0.0" height="0.0"/>
+                        <cornerRoad id="13" s="14.0" t="3.0" dz="0.0" height="0.0"/>
+                        <cornerRoad id="14" s="10.0" t="3.0" dz="0.0" height="0.0"/>
+                    </outline>
+                </outlines>
+                <markings>
+                    <marking id="1" type="paint" side="1 3" width="0.1" placementMode="edge-relative"/>
+                    <marking id="2" type="paint" cornerReference="11 12 13" width="0.1" placementMode="edge-relative"/>
+                </markings>
+            </object>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    OpenDrive odr;
+    ASSERT_TRUE(odr.LoadOpenDriveFromXMLString(xodr, true));
+    Road *road = odr.GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    const RMObjectDefinition *def = road->GetObjectDefinition(0);
+    ASSERT_NE(def, nullptr);
+    ASSERT_EQ(def->outlines.size(), 1u);
+    ASSERT_EQ(def->outlines[0].corners.size(), 4u);
+    EXPECT_EQ(def->outlines[0].corners[0].id, 11);
+    EXPECT_EQ(def->outlines[0].corners[1].id, 12);
+    EXPECT_EQ(def->outlines[0].corners[2].id, 13);
+    EXPECT_EQ(def->outlines[0].corners[3].id, 14);
+
+    ASSERT_EQ(def->markings.size(), 2u);
+    ASSERT_EQ(def->markings[0].edgeReferences.size(), 2u);
+    EXPECT_EQ(def->markings[0].edgeReferences[0], 1);
+    EXPECT_EQ(def->markings[0].edgeReferences[1], 3);
+    ASSERT_EQ(def->markings[1].cornerReferences.size(), 3u);
+    EXPECT_EQ(def->markings[1].cornerReferences[0], 11);
+    EXPECT_EQ(def->markings[1].cornerReferences[1], 12);
+    EXPECT_EQ(def->markings[1].cornerReferences[2], 13);
+
+    std::vector<RMExpandedObject> expanded = ExpandRoadObjectDefinitions(*road);
+    ASSERT_GT(expanded.size(), 1u);
+    for (const auto &seg : expanded)
+    {
+        EXPECT_EQ(seg.kind, RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT);
+        EXPECT_TRUE(seg.has_world_corners);
+    }
+
+    // Validate stitched continuity in the same fixture used for marking references.
+    const double tol = 1e-9;
+    for (size_t i = 0; i + 1 < expanded.size(); ++i)
+    {
+        const auto &cur  = expanded[i];
+        const auto &next = expanded[i + 1];
+
+        // Positive-t shared corner: current end == next start.
+        EXPECT_NEAR(cur.world_corners[2].x, next.world_corners[1].x, tol);
+        EXPECT_NEAR(cur.world_corners[2].y, next.world_corners[1].y, tol);
+
+        // Negative-t shared corner: current end == next start.
+        EXPECT_NEAR(cur.world_corners[3].x, next.world_corners[0].x, tol);
+        EXPECT_NEAR(cur.world_corners[3].y, next.world_corners[0].y, tol);
+    }
+}
+
+namespace
+{
+    std::vector<std::array<osg::Vec3d, 4>> CollectQuadsFromMarkingGroup(osg::Group *group)
+    {
+        std::vector<std::array<osg::Vec3d, 4>> quads;
+        if (group == nullptr)
+        {
+            return quads;
+        }
+
+        for (unsigned int i = 0; i < group->getNumChildren(); ++i)
+        {
+            osg::Geode *geode = dynamic_cast<osg::Geode *>(group->getChild(i));
+            if (geode == nullptr)
+            {
+                continue;
+            }
+
+            for (unsigned int di = 0; di < geode->getNumDrawables(); ++di)
+            {
+                osg::Geometry *geom = geode->getDrawable(di)->asGeometry();
+                if (geom == nullptr)
+                {
+                    continue;
+                }
+
+                osg::Vec3Array *verts = dynamic_cast<osg::Vec3Array *>(geom->getVertexArray());
+                if (verts == nullptr || verts->size() < 4)
+                {
+                    continue;
+                }
+
+                std::array<osg::Vec3d, 4> quad = {osg::Vec3d((*verts)[0].x(), (*verts)[0].y(), (*verts)[0].z()),
+                                                  osg::Vec3d((*verts)[1].x(), (*verts)[1].y(), (*verts)[1].z()),
+                                                  osg::Vec3d((*verts)[2].x(), (*verts)[2].y(), (*verts)[2].z()),
+                                                  osg::Vec3d((*verts)[3].x(), (*verts)[3].y(), (*verts)[3].z())};
+                quads.push_back(quad);
+            }
+        }
+
+        return quads;
+    }
+
+    double Dist2D(const osg::Vec3d &a, const osg::Vec3d &b)
+    {
+        const double dx = a.x() - b.x();
+        const double dy = a.y() - b.y();
+        return std::sqrt(dx * dx + dy * dy);
+    }
+
+    int CountNodesWithPrefix(osg::Node *root, const std::string &prefix)
+    {
+        if (root == nullptr)
+        {
+            return 0;
+        }
+
+        int                      count = 0;
+        std::vector<osg::Node *> stack;
+        stack.push_back(root);
+
+        while (!stack.empty())
+        {
+            osg::Node *node = stack.back();
+            stack.pop_back();
+
+            if (node != nullptr)
+            {
+                const std::string &name = node->getName();
+                if (name.rfind(prefix, 0) == 0)
+                {
+                    ++count;
+                }
+
+                osg::Group *group = node->asGroup();
+                if (group != nullptr)
+                {
+                    for (unsigned int i = 0; i < group->getNumChildren(); ++i)
+                    {
+                        stack.push_back(group->getChild(i));
+                    }
+                }
+            }
+        }
+
+        return count;
+    }
+
+    std::string ResolveExistingPath(const std::vector<std::string> &candidates)
+    {
+        for (const std::string &path : candidates)
+        {
+            std::ifstream in(path);
+            if (in.good())
+            {
+                return path;
+            }
+        }
+
+        return "";
+    }
+}  // namespace
+
+TEST(RoadObjectsRefactorViewer, FullEdgeMarkingsCreateExpectedCornerJoin)
+{
+    std::vector<osg::Vec3d> points = {osg::Vec3d(0.0, 0.0, 0.0), osg::Vec3d(4.0, 0.0, 0.0), osg::Vec3d(4.0, 2.0, 0.0)};
+
+    RMObjectMarkingDefinition marking;
+    marking.width = 0.1;
+    // spaceLength == 0 means continuous; this should still stitch adjacent full segments.
+    marking.spaceLength = 0.0;
+
+    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    ASSERT_TRUE(group.valid());
+
+    std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
+    ASSERT_EQ(quads.size(), 2u);
+
+    // For full-edge coverage over two connected edges, adjacent quads should stitch at shared corner.
+    const double tol = 1e-6;
+    EXPECT_LE(Dist2D(quads[0][2], quads[1][1]), tol);
+    EXPECT_LE(Dist2D(quads[0][3], quads[1][0]), tol);
+}
+
+TEST(RoadObjectsRefactorViewer, PartialEdgeMarkingsAvoidUnintendedCornerJoin)
+{
+    std::vector<osg::Vec3d> points = {osg::Vec3d(0.0, 0.0, 0.0), osg::Vec3d(4.0, 0.0, 0.0), osg::Vec3d(4.0, 2.0, 0.0)};
+
+    RMObjectMarkingDefinition marking;
+    marking.width       = 0.1;
+    marking.startOffset = 0.4;
+    marking.stopOffset  = 0.4;
+    marking.spaceLength = 0.0;
+
+    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    ASSERT_TRUE(group.valid());
+
+    std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
+    ASSERT_EQ(quads.size(), 2u);
+
+    // Partial-edge segments should keep independent perpendicular caps (no forced corner stitch).
+    const double d_pos = Dist2D(quads[0][2], quads[1][1]);
+    const double d_neg = Dist2D(quads[0][3], quads[1][0]);
+    EXPECT_GT(std::max(d_pos, d_neg), 1e-3);
+}
+
+TEST(RoadObjectsRefactorViewer, SpaceLengthZeroProducesContinuousSegmentCoverage)
+{
+    std::vector<osg::Vec3d> points = {osg::Vec3d(0.0, 0.0, 0.0), osg::Vec3d(4.0, 0.0, 0.0)};
+
+    RMObjectMarkingDefinition marking;
+    marking.width       = 0.1;
+    marking.lineLength  = 0.5;
+    marking.spaceLength = 0.0;
+
+    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    ASSERT_TRUE(group.valid());
+
+    std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
+    // One referenced edge and spaceLength==0 should produce a continuous solid quad over that edge.
+    ASSERT_EQ(quads.size(), 1u);
+
+    const osg::Vec3d start_center = (quads[0][0] + quads[0][1]) * 0.5;
+    const osg::Vec3d end_center   = (quads[0][2] + quads[0][3]) * 0.5;
+    EXPECT_GT(Dist2D(start_center, end_center), 3.9);
+}
+
+TEST(RoadObjectsRefactorViewer, TunnelLegacyObjectsStillRenderedAfterM5)
+{
+    const std::string tunnels_xodr_path =
+        ResolveExistingPath({"../../../resources/xodr/tunnels.xodr", "../../../../resources/xodr/tunnels.xodr", "resources/xodr/tunnels.xodr"});
+    ASSERT_FALSE(tunnels_xodr_path.empty());
+
+    ASSERT_TRUE(roadmanager::Position::LoadOpenDrive(tunnels_xodr_path.c_str()));
+    roadmanager::OpenDrive *odr = roadmanager::Position::GetOpenDrive();
+    ASSERT_NE(odr, nullptr);
+    ASSERT_GT(odr->GetNumOfRoads(), 0u);
+
+    std::unique_ptr<roadgeom::RoadGeom> road_geom =
+        std::make_unique<roadgeom::RoadGeom>(odr, nullptr, osg::Vec3d(0.0, 0.0, 0.0), false, true, "", true);
+    ASSERT_NE(road_geom, nullptr);
+    ASSERT_TRUE(road_geom->root_.valid());
+
+    const int tunnel_wall_nodes = CountNodesWithPrefix(road_geom->root_.get(), "tunnel_wall_");
+    const int tunnel_roof_nodes = CountNodesWithPrefix(road_geom->root_.get(), "tunnel_roof_");
+
+    // Tunnel components are generated as legacy RMObjects from <tunnel> and must remain visible
+    // even when expanded-object rendering is enabled by default.
+    EXPECT_GT(tunnel_wall_nodes, 0);
+    EXPECT_GT(tunnel_roof_nodes, 0);
+}
+
+TEST(RoadObjectsRefactorViewer, MiniTunnelFromTunnelElementIsRendered)
+{
+    const char *xodr = R"XODR(<?xml version="1.0" encoding="UTF-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="mini_tunnel" version="1.00" date="2026-01-01" north="0" south="0" east="0" west="0"/>
+    <road id="1" length="100.000" junction="-1">
+        <planView>
+            <geometry s="0.000000" x="0.000000" y="0.000000" hdg="0.000000" length="100.000000">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.000000">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <width sOffset="0.000000" a="3.500000" b="0.000000" c="0.000000" d="0.000000"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false"/>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <width sOffset="0.000000" a="3.500000" b="0.000000" c="0.000000" d="0.000000"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects>
+            <tunnel s="20.0" length="20.0" name="ShortTunnel" id="2" type="standard" lighting="0.5" daylight="0.9">
+                <userData code="esmini" value="generate3DModel=true"/>
+            </tunnel>
+        </objects>
+    </road>
+</OpenDRIVE>)XODR";
+
+    ASSERT_TRUE(roadmanager::Position::LoadOpenDriveFromXMLString(xodr));
+    roadmanager::OpenDrive *odr = roadmanager::Position::GetOpenDrive();
+    ASSERT_NE(odr, nullptr);
+
+    std::unique_ptr<roadgeom::RoadGeom> road_geom =
+        std::make_unique<roadgeom::RoadGeom>(odr, nullptr, osg::Vec3d(0.0, 0.0, 0.0), false, true, "", true);
+    ASSERT_NE(road_geom, nullptr);
+    ASSERT_TRUE(road_geom->root_.valid());
+
+    const int tunnel_wall_nodes = CountNodesWithPrefix(road_geom->root_.get(), "tunnel_wall_");
+    const int tunnel_roof_nodes = CountNodesWithPrefix(road_geom->root_.get(), "tunnel_roof_");
+
+    EXPECT_GT(tunnel_wall_nodes, 0);
+    EXPECT_GT(tunnel_roof_nodes, 0);
 }
 
 int main(int argc, char **argv)

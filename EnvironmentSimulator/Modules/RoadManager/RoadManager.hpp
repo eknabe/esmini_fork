@@ -19,6 +19,7 @@
 #include <vector>
 #include <list>
 #include <sstream>
+#include <optional>
 #include "pugixml.hpp"
 #include "CommonMini.hpp"
 #include "logger.hpp"
@@ -2317,6 +2318,102 @@ namespace roadmanager
         std::string restrictions_;
     };
 
+    enum class RMCornerCoordSystem
+    {
+        ROAD,
+        LOCAL
+    };
+
+    struct RMOutlineCornerDefinition
+    {
+        id_t                  id          = ID_UNDEFINED;
+        RMCornerCoordSystem   coordSystem = RMCornerCoordSystem::ROAD;
+        std::optional<double> s;
+        std::optional<double> t;
+        std::optional<double> dz;
+        std::optional<double> u;
+        std::optional<double> v;
+        std::optional<double> zLocal;
+        std::optional<double> height;
+    };
+
+    struct RMOutlineDefinition
+    {
+        id_t                                   id       = ID_UNDEFINED;
+        Outline::FillType                      fillType = Outline::FillType::FILL_TYPE_UNDEFINED;
+        bool                                   closed   = false;
+        std::vector<RMOutlineCornerDefinition> corners;
+    };
+
+    struct RMRepeatDefinition
+    {
+        double                s        = 0.0;
+        double                length   = 0.0;
+        double                distance = 0.0;
+        std::optional<double> tStart;
+        std::optional<double> tEnd;
+        std::optional<double> heightStart;
+        std::optional<double> heightEnd;
+        std::optional<double> zOffsetStart;
+        std::optional<double> zOffsetEnd;
+        std::optional<double> widthStart;
+        std::optional<double> widthEnd;
+        std::optional<double> lengthStart;
+        std::optional<double> lengthEnd;
+        std::optional<double> radiusStart;
+        std::optional<double> radiusEnd;
+    };
+
+    struct RMObjectMarkingDefinition
+    {
+        enum class Side
+        {
+            FRONT,
+            LEFT,
+            REAR,
+            RIGHT
+        };
+
+        id_t                       id = ID_UNDEFINED;
+        std::string                type;
+        std::optional<double>      width;
+        std::optional<double>      length;
+        std::optional<double>      lineLength;
+        std::optional<double>      spaceLength;
+        std::optional<double>      startOffset;
+        std::optional<double>      stopOffset;
+        std::optional<double>      zOffset;
+        std::optional<std::string> color;
+        std::vector<Side>          sides;
+        std::vector<int>           edgeReferences;
+        std::vector<int>           cornerReferences;
+        std::string                placementMode;
+    };
+
+    struct RMObjectDefinition
+    {
+        id_t                                   id = ID_UNDEFINED;
+        std::string                            name;
+        std::string                            type;
+        double                                 s           = 0.0;
+        double                                 t           = 0.0;
+        double                                 zOffset     = 0.0;
+        double                                 hdg         = 0.0;
+        double                                 pitch       = 0.0;
+        double                                 roll        = 0.0;
+        RoadObject::Orientation                orientation = RoadObject::Orientation::NONE;
+        std::optional<double>                  length;
+        std::optional<double>                  width;
+        std::optional<double>                  height;
+        std::optional<double>                  radius;
+        std::optional<RoadMarkColor>           roadMarkColor;
+        std::vector<RMOutlineDefinition>       outlines;
+        std::vector<RMRepeatDefinition>        repeats;
+        std::vector<RMObjectMarkingDefinition> markings;
+        std::optional<ParkingSpace>            parkingSpace;
+        std::vector<ValidityRecord>            validity;
+    };
+
     class Repeat
     {
     public:
@@ -2879,6 +2976,7 @@ namespace roadmanager
         void                                     AddLaneOffset(LaneOffset *lane_offset);
         void                                     AddSignal(Signal *signal);
         void                                     AddObject(RMObject *object);
+        void                                     AddObjectDefinition(const RMObjectDefinition &object_definition);
         void                                     AddTunnel(Tunnel *tunnel);
         Elevation                               *GetElevation(idx_t idx) const;
         Elevation                               *GetSuperElevation(idx_t idx) const;
@@ -2888,7 +2986,16 @@ namespace roadmanager
         {
             return static_cast<unsigned int>(object_.size());
         }
-        RMObject    *GetRoadObject(idx_t idx) const;
+        unsigned int GetNumberOfObjectDefinitions() const
+        {
+            return static_cast<unsigned int>(object_definitions_.size());
+        }
+        RMObject                              *GetRoadObject(idx_t idx) const;
+        const RMObjectDefinition              *GetObjectDefinition(idx_t idx) const;
+        const std::vector<RMObjectDefinition> &GetObjectDefinitions() const
+        {
+            return object_definitions_;
+        }
         unsigned int GetNumberOfElevations() const
         {
             return static_cast<unsigned int>(elevation_profile_.size());
@@ -2992,6 +3099,7 @@ namespace roadmanager
         std::vector<LaneOffset *>               lane_offset_;
         std::vector<Signal *>                   signal_;
         std::vector<RMObject *>                 object_;
+        std::vector<RMObjectDefinition>         object_definitions_;
         std::vector<Tunnel *>                   tunnel_;
     };
 
@@ -3519,23 +3627,6 @@ namespace roadmanager
         {
             return dynamic_signals_;
         }
-
-        Outline *CreateContinuousRepeatOutline(Road  *r,
-                                               id_t   ids,
-                                               double s,
-                                               double t,
-                                               double heading,
-                                               double length,
-                                               double rs,
-                                               double rlength,
-                                               double rwidthStart,
-                                               double rwidthEnd,
-                                               double rheightStart,
-                                               double rheightEnd,
-                                               double rtStart,
-                                               double rtEnd,
-                                               double rzOffsetStart,
-                                               double rzOffsetEnd);
 
     private:
         pugi::xml_node                            root_node_;

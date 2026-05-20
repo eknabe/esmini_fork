@@ -12,6 +12,7 @@
 
 #include "roadgeom.hpp"
 #include "RoadManager.hpp"
+#include "RoadObjectExpansion.hpp"
 #include "logger.hpp"
 
 #include <osg/StateSet>
@@ -30,6 +31,10 @@
 #include <osgUtil/Optimizer>    // to flatten transform nodes
 #include <osgUtil/Tessellator>  // to tessellate multiple contours
 #include <osgDB/WriteFile>
+
+#include <limits>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "CommonMini.hpp"
 
@@ -122,6 +127,617 @@ namespace roadgeom
     {
         const float(&rgb)[3] = SE_Color::Color2RBG(roadmanager::ODRColor2SEColor(color));
         return osg::Vec4(rgb[0], rgb[1], rgb[2], 1.0);
+    }
+
+    roadmanager::Outline* BuildExpandedOutlineFromDefinition(const roadmanager::RMObjectDefinition& def,
+                                                             const roadmanager::RMExpandedObject&   exp,
+                                                             int                                    outline_index,
+                                                             id_t                                   road_id)
+    {
+        if (outline_index < 0 || outline_index >= static_cast<int>(def.outlines.size()))
+        {
+            return nullptr;
+        }
+
+        const roadmanager::RMOutlineDefinition& src_outline    = def.outlines[outline_index];
+        roadmanager::Outline*                   outline        = new roadmanager::Outline(src_outline.id, src_outline.fillType, src_outline.closed);
+        const double                            z_offset_delta = exp.zOffset - def.zOffset;
+
+        for (const auto& corner_def : src_outline.corners)
+        {
+            roadmanager::OutlineCorner* corner = nullptr;
+
+            if (corner_def.coordSystem == roadmanager::RMCornerCoordSystem::ROAD)
+            {
+                // For cornerRoad, preserve the road-frame (ds, dt) offsets from the definition
+                // anchor and apply them to the instance anchor. Each instance thereby gets its
+                // corners re-evaluated against the actual road geometry at that s position,
+                // correctly handling changes in curvature along repeated instances.
+                const double ds = corner_def.s.value_or(def.s) - def.s;
+                const double dt = corner_def.t.value_or(def.t) - def.t;
+                const double dz = corner_def.dz.value_or(0.0) + z_offset_delta;
+                const double h  = corner_def.height.value_or(0.0);
+
+                corner = new roadmanager::OutlineCornerRoad(road_id, exp.s + ds, exp.t + dt, dz, h, exp.s, exp.t, exp.hdg);
+            }
+            else
+            {
+                const double u      = corner_def.u.value_or(0.0);
+                const double v      = corner_def.v.value_or(0.0);
+                const double zLocal = corner_def.zLocal.value_or(0.0) + z_offset_delta;
+                const double h      = corner_def.height.value_or(0.0);
+
+                corner = new roadmanager::OutlineCornerLocal(road_id, exp.s, exp.t, u, v, zLocal, h, exp.hdg);
+            }
+
+            if (corner != nullptr)
+            {
+                outline->AddCorner(corner);
+            }
+        }
+
+        return outline;
+    }
+
+    std::string LocateRoadObjectModelFile(const std::string& object_name, const std::string& odr_filename, const std::string& exe_path)
+    {
+        if (object_name.empty())
+        {
+            return "";
+        }
+
+        const std::vector<std::string> search_paths = {DirNameOf(odr_filename) + "/../models", DirNameOf(exe_path) + "/../resources/models"};
+
+        bool        found        = false;
+        std::string located_path = LocateFile(object_name, search_paths, "Road object 3D model", found, false);
+        if (!found && FileNameExtOf(object_name).empty())
+        {
+            located_path = LocateFile(object_name + ".osgb", search_paths, "Road object 3D model", found, false);
+        }
+
+        return found ? located_path : "";
+    }
+
+    void GetNodeDimensions(osg::Node& node, double& dim_x, double& dim_y, double& dim_z)
+    {
+        osg::ComputeBoundsVisitor cbv;
+        node.accept(cbv);
+
+        const osg::BoundingBox& bounding_box = cbv.getBoundingBox();
+        dim_x                                = bounding_box._max.x() - bounding_box._min.x();
+        dim_y                                = bounding_box._max.y() - bounding_box._min.y();
+        dim_z                                = bounding_box._max.z() - bounding_box._min.z();
+    }
+
+    std::optional<roadmanager::RoadMarkColor> ParseRoadMarkColorString(std::string color_name)
+    {
+        std::transform(color_name.begin(), color_name.end(), color_name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (color_name == "standard")
+            return roadmanager::RoadMarkColor::STANDARD;
+        if (color_name == "blue")
+            return roadmanager::RoadMarkColor::BLUE;
+        if (color_name == "green")
+            return roadmanager::RoadMarkColor::GREEN;
+        if (color_name == "red")
+            return roadmanager::RoadMarkColor::RED;
+        if (color_name == "white")
+            return roadmanager::RoadMarkColor::WHITE;
+        if (color_name == "yellow")
+            return roadmanager::RoadMarkColor::YELLOW;
+        if (color_name == "orange")
+            return roadmanager::RoadMarkColor::ORANGE;
+        if (color_name == "violet")
+            return roadmanager::RoadMarkColor::VIOLET;
+        if (color_name == "black")
+            return roadmanager::RoadMarkColor::BLACK;
+
+        return std::nullopt;
+    }
+
+    osg::Vec4 ResolveMarkingColor(const roadmanager::RMObjectMarkingDefinition& marking, const osg::Vec4& fallback)
+    {
+        if (!marking.color.has_value())
+        {
+            return fallback;
+        }
+
+        std::optional<roadmanager::RoadMarkColor> parsed = ParseRoadMarkColorString(marking.color.value());
+        if (!parsed.has_value())
+        {
+            return fallback;
+        }
+
+        return ODR2OSGColor(parsed.value());
+    }
+
+    bool EdgeReferenceMatches(int edge_ref, size_t edge_index, size_t edge_count)
+    {
+        if (edge_ref >= 1 && edge_ref <= static_cast<int>(edge_count))
+        {
+            return edge_index == static_cast<size_t>(edge_ref - 1);
+        }
+        if (edge_ref >= 0 && edge_ref < static_cast<int>(edge_count))
+        {
+            return edge_index == static_cast<size_t>(edge_ref);
+        }
+
+        return false;
+    }
+
+    struct MarkingEdge
+    {
+        osg::Vec3d a;
+        osg::Vec3d b;
+    };
+
+    bool IntersectLines2D(const osg::Vec3d& a0, const osg::Vec3d& a1, const osg::Vec3d& b0, const osg::Vec3d& b1, osg::Vec3d& out)
+    {
+        constexpr double kEpsilon = 1e-6;
+        const double     d1x      = a1.x() - a0.x();
+        const double     d1y      = a1.y() - a0.y();
+        const double     d2x      = b1.x() - b0.x();
+        const double     d2y      = b1.y() - b0.y();
+        const double     det      = d1x * d2y - d1y * d2x;
+        if (std::fabs(det) < kEpsilon)
+        {
+            out.x() = 0.5 * (a1.x() + b0.x());
+            out.y() = 0.5 * (a1.y() + b0.y());
+            return false;
+        }
+
+        const double dx    = b0.x() - a0.x();
+        const double dy    = b0.y() - a0.y();
+        const double param = (dx * d2y - dy * d2x) / det;
+        out.x()            = a0.x() + param * d1x;
+        out.y()            = a0.y() + param * d1y;
+        return true;
+    }
+
+    osg::ref_ptr<osg::Group> RoadGeom::CreateObjectMarkingsGeomFromPolyline(const std::vector<osg::Vec3d>&                points,
+                                                                            const roadmanager::RMObjectMarkingDefinition& marking,
+                                                                            const osg::Vec4&                              color,
+                                                                            bool                                          closed_loop)
+    {
+        if (points.size() < 2)
+        {
+            return nullptr;
+        }
+
+        const double half_width = 0.5 * std::max(0.01, marking.width.value_or(0.12));
+
+        std::vector<osg::Vec3d> filtered_points;
+        filtered_points.reserve(points.size());
+        for (const osg::Vec3d& point : points)
+        {
+            if (filtered_points.empty())
+            {
+                filtered_points.push_back(point);
+                continue;
+            }
+
+            const osg::Vec3d& prev = filtered_points.back();
+            const double      dx   = point.x() - prev.x();
+            const double      dy   = point.y() - prev.y();
+            if (std::sqrt(dx * dx + dy * dy) < SMALL_NUMBER)
+            {
+                continue;
+            }
+
+            filtered_points.push_back(point);
+        }
+
+        if (closed_loop && filtered_points.size() >= 2)
+        {
+            const osg::Vec3d& first = filtered_points.front();
+            const osg::Vec3d& last  = filtered_points.back();
+            const double      dx    = first.x() - last.x();
+            const double      dy    = first.y() - last.y();
+            if (std::sqrt(dx * dx + dy * dy) < SMALL_NUMBER)
+            {
+                filtered_points.pop_back();
+            }
+        }
+
+        if (filtered_points.size() < 2)
+        {
+            return nullptr;
+        }
+
+        const size_t point_count   = filtered_points.size();
+        const size_t segment_count = closed_loop ? point_count : (point_count - 1);
+
+        std::vector<osg::Vec3d> segment_normals(segment_count);
+        for (size_t i = 0; i < segment_count; ++i)
+        {
+            const osg::Vec3d& a = filtered_points[i];
+            const osg::Vec3d& b = filtered_points[(i + 1) % point_count];
+            osg::Vec3d        dir(b.x() - a.x(), b.y() - a.y(), 0.0);
+            const double      len = std::sqrt(dir.x() * dir.x() + dir.y() * dir.y());
+            if (len < SMALL_NUMBER)
+            {
+                segment_normals[i].set(0.0, 0.0, 0.0);
+            }
+            else
+            {
+                segment_normals[i].set(-dir.y() / len, dir.x() / len, 0.0);
+            }
+        }
+
+        std::vector<osg::Vec3d> left_points(point_count);
+        std::vector<osg::Vec3d> right_points(point_count);
+
+        auto offset_point = [&](const osg::Vec3d& point, const osg::Vec3d& normal, bool left_side) -> osg::Vec3d
+        {
+            const double sign = left_side ? 1.0 : -1.0;
+            return osg::Vec3d(point.x() + sign * normal.x() * half_width, point.y() + sign * normal.y() * half_width, point.z());
+        };
+
+        if (closed_loop)
+        {
+            for (size_t i = 0; i < point_count; ++i)
+            {
+                const size_t prev_seg = (i + point_count - 1) % point_count;
+                const size_t next_seg = i % point_count;
+
+                const osg::Vec3d& prev_point = filtered_points[(i + point_count - 1) % point_count];
+                const osg::Vec3d& cur_point  = filtered_points[i];
+                const osg::Vec3d& next_point = filtered_points[(i + 1) % point_count];
+                const osg::Vec3d& prev_norm  = segment_normals[prev_seg];
+                const osg::Vec3d& next_norm  = segment_normals[next_seg];
+
+                osg::Vec3d left_prev_a(prev_point.x() + prev_norm.x() * half_width, prev_point.y() + prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_prev_b(cur_point.x() + prev_norm.x() * half_width, cur_point.y() + prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_next_a(cur_point.x() + next_norm.x() * half_width, cur_point.y() + next_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_next_b(next_point.x() + next_norm.x() * half_width, next_point.y() + next_norm.y() * half_width, cur_point.z());
+                IntersectLines2D(left_prev_a, left_prev_b, left_next_a, left_next_b, left_points[i]);
+                left_points[i].z() = cur_point.z();
+
+                osg::Vec3d right_prev_a(prev_point.x() - prev_norm.x() * half_width, prev_point.y() - prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_prev_b(cur_point.x() - prev_norm.x() * half_width, cur_point.y() - prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_next_a(cur_point.x() - next_norm.x() * half_width, cur_point.y() - next_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_next_b(next_point.x() - next_norm.x() * half_width, next_point.y() - next_norm.y() * half_width, cur_point.z());
+                IntersectLines2D(right_prev_a, right_prev_b, right_next_a, right_next_b, right_points[i]);
+                right_points[i].z() = cur_point.z();
+            }
+        }
+        else
+        {
+            left_points.front()  = offset_point(filtered_points.front(), segment_normals.front(), true);
+            right_points.front() = offset_point(filtered_points.front(), segment_normals.front(), false);
+            left_points.back()   = offset_point(filtered_points.back(), segment_normals.back(), true);
+            right_points.back()  = offset_point(filtered_points.back(), segment_normals.back(), false);
+
+            for (size_t i = 1; i + 1 < point_count; ++i)
+            {
+                const osg::Vec3d& prev_point = filtered_points[i - 1];
+                const osg::Vec3d& cur_point  = filtered_points[i];
+                const osg::Vec3d& next_point = filtered_points[i + 1];
+                const osg::Vec3d& prev_norm  = segment_normals[i - 1];
+                const osg::Vec3d& next_norm  = segment_normals[i];
+
+                osg::Vec3d left_prev_a(prev_point.x() + prev_norm.x() * half_width, prev_point.y() + prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_prev_b(cur_point.x() + prev_norm.x() * half_width, cur_point.y() + prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_next_a(cur_point.x() + next_norm.x() * half_width, cur_point.y() + next_norm.y() * half_width, cur_point.z());
+                osg::Vec3d left_next_b(next_point.x() + next_norm.x() * half_width, next_point.y() + next_norm.y() * half_width, cur_point.z());
+                IntersectLines2D(left_prev_a, left_prev_b, left_next_a, left_next_b, left_points[i]);
+                left_points[i].z() = cur_point.z();
+
+                osg::Vec3d right_prev_a(prev_point.x() - prev_norm.x() * half_width, prev_point.y() - prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_prev_b(cur_point.x() - prev_norm.x() * half_width, cur_point.y() - prev_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_next_a(cur_point.x() - next_norm.x() * half_width, cur_point.y() - next_norm.y() * half_width, cur_point.z());
+                osg::Vec3d right_next_b(next_point.x() - next_norm.x() * half_width, next_point.y() - next_norm.y() * half_width, cur_point.z());
+                IntersectLines2D(right_prev_a, right_prev_b, right_next_a, right_next_b, right_points[i]);
+                right_points[i].z() = cur_point.z();
+            }
+        }
+
+        // Build arc-length parameterization over segments
+        std::vector<double> arc_s(segment_count + 1, 0.0);
+        for (size_t i = 0; i < segment_count; ++i)
+        {
+            const osg::Vec3d& a  = filtered_points[i];
+            const osg::Vec3d& b  = filtered_points[(i + 1) % point_count];
+            const double      dx = b.x() - a.x();
+            const double      dy = b.y() - a.y();
+            arc_s[i + 1]         = arc_s[i] + std::sqrt(dx * dx + dy * dy);
+        }
+        double       line_length  = std::max(0.0, marking.lineLength.value_or(marking.length.value_or(0.0)));
+        double       space_length = std::max(0.0, marking.spaceLength.value_or(0.0));
+        const double start_offset = std::max(0.0, marking.startOffset.value_or(0.0));
+        const double stop_offset  = std::max(0.0, marking.stopOffset.value_or(0.0));
+
+        if (space_length < SMALL_NUMBER)
+        {
+            space_length = 0.0;
+            line_length  = std::numeric_limits<double>::infinity();
+        }
+
+        const bool dashed = space_length > SMALL_NUMBER && line_length > SMALL_NUMBER;
+
+        // Sample center/left/right offset points at arc-length t
+        auto sample = [&](double t) -> std::tuple<osg::Vec3d, osg::Vec3d, osg::Vec3d>
+        {
+            const double total_len = arc_s.back();
+            t                      = std::max(0.0, std::min(total_len, t));
+            for (size_t i = 0; i < segment_count; ++i)
+            {
+                if (t <= arc_s[i + 1] + SMALL_NUMBER)
+                {
+                    const size_t ni      = (i + 1) % point_count;
+                    const double seg_len = arc_s[i + 1] - arc_s[i];
+                    const double alpha   = (seg_len > SMALL_NUMBER) ? std::max(0.0, std::min(1.0, (t - arc_s[i]) / seg_len)) : 0.0;
+                    auto         lerp3   = [](const osg::Vec3d& a, const osg::Vec3d& b, double f)
+                    { return osg::Vec3d(a.x() + f * (b.x() - a.x()), a.y() + f * (b.y() - a.y()), a.z() + f * (b.z() - a.z())); };
+                    return {lerp3(filtered_points[i], filtered_points[ni], alpha),
+                            lerp3(left_points[i], left_points[ni], alpha),
+                            lerp3(right_points[i], right_points[ni], alpha)};
+                }
+            }
+            return {filtered_points.back(), left_points.back(), right_points.back()};
+        };
+
+        osg::ref_ptr<osg::Group> group = new osg::Group;
+
+        auto emit_quad = [&](double t0, double t1)
+        {
+            if (t1 - t0 < SMALL_NUMBER)
+            {
+                return;
+            }
+
+            auto [c0, l0, r0] = sample(t0);
+            auto [c1, l1, r1] = sample(t1);
+
+            osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+            verts->push_back(osg::Vec3(static_cast<float>(l0.x()), static_cast<float>(l0.y()), static_cast<float>(l0.z())));
+            verts->push_back(osg::Vec3(static_cast<float>(r0.x()), static_cast<float>(r0.y()), static_cast<float>(r0.z())));
+            verts->push_back(osg::Vec3(static_cast<float>(r1.x()), static_cast<float>(r1.y()), static_cast<float>(r1.z())));
+            verts->push_back(osg::Vec3(static_cast<float>(l1.x()), static_cast<float>(l1.y()), static_cast<float>(l1.z())));
+
+            osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+            geom->setVertexArray(verts);
+            geom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+
+            osg::ref_ptr<osg::Vec4Array> color_arr = new osg::Vec4Array;
+            color_arr->push_back(color);
+            geom->setColorArray(color_arr);
+            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+            geom->setDataVariance(osg::Object::STATIC);
+            osgUtil::SmoothingVisitor::smooth(*geom, 0.0);
+
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            geode->addDrawable(geom);
+            geode->getOrCreateStateSet()->setAttributeAndModes(
+                GetOrCreateMaterial("ObjectMark", color, static_cast<uint8_t>(RoadGeom::MaterialType::OBJECT_MARKING)));
+            group->addChild(geode);
+        };
+
+        auto emit_segment_aligned_dash = [&](size_t seg_index, double local_t0, double local_t1)
+        {
+            if (local_t1 - local_t0 < SMALL_NUMBER)
+            {
+                return;
+            }
+
+            const size_t      ni      = (seg_index + 1) % point_count;
+            const osg::Vec3d& a       = filtered_points[seg_index];
+            const osg::Vec3d& b       = filtered_points[ni];
+            const double      seg_len = std::sqrt((b.x() - a.x()) * (b.x() - a.x()) + (b.y() - a.y()) * (b.y() - a.y()));
+            if (seg_len < SMALL_NUMBER)
+            {
+                return;
+            }
+
+            const double f0 = std::max(0.0, std::min(1.0, local_t0 / seg_len));
+            const double f1 = std::max(0.0, std::min(1.0, local_t1 / seg_len));
+
+            const osg::Vec3d p0(a.x() + f0 * (b.x() - a.x()), a.y() + f0 * (b.y() - a.y()), a.z() + f0 * (b.z() - a.z()));
+            const osg::Vec3d p1(a.x() + f1 * (b.x() - a.x()), a.y() + f1 * (b.y() - a.y()), a.z() + f1 * (b.z() - a.z()));
+
+            const osg::Vec3d& seg_n = segment_normals[seg_index];
+            const osg::Vec3d  n(seg_n.x() * half_width, seg_n.y() * half_width, 0.0);
+
+            osg::Vec3d start_left(p0.x() + n.x(), p0.y() + n.y(), p0.z());
+            osg::Vec3d start_right(p0.x() - n.x(), p0.y() - n.y(), p0.z());
+            osg::Vec3d end_left(p1.x() + n.x(), p1.y() + n.y(), p1.z());
+            osg::Vec3d end_right(p1.x() - n.x(), p1.y() - n.y(), p1.z());
+
+            // Keep dash caps perpendicular everywhere except on actual polyline joins,
+            // where we use precomputed miter corner points for seamless stitching.
+            const bool touches_seg_start = std::fabs(local_t0) <= SMALL_NUMBER;
+            const bool touches_seg_end   = std::fabs(local_t1 - seg_len) <= SMALL_NUMBER;
+            const bool covers_full_edge  = touches_seg_start && touches_seg_end;
+
+            auto has_join_at_point = [&](size_t point_index) -> bool
+            {
+                if (closed_loop)
+                {
+                    return point_count >= 3;
+                }
+                return point_index > 0 && point_index + 1 < point_count;
+            };
+
+            if (covers_full_edge && touches_seg_start && has_join_at_point(seg_index))
+            {
+                start_left  = left_points[seg_index];
+                start_right = right_points[seg_index];
+            }
+            if (covers_full_edge && touches_seg_end && has_join_at_point(ni))
+            {
+                end_left  = left_points[ni];
+                end_right = right_points[ni];
+            }
+
+            osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+            verts->push_back(osg::Vec3(static_cast<float>(start_left.x()), static_cast<float>(start_left.y()), static_cast<float>(start_left.z())));
+            verts->push_back(
+                osg::Vec3(static_cast<float>(start_right.x()), static_cast<float>(start_right.y()), static_cast<float>(start_right.z())));
+            verts->push_back(osg::Vec3(static_cast<float>(end_right.x()), static_cast<float>(end_right.y()), static_cast<float>(end_right.z())));
+            verts->push_back(osg::Vec3(static_cast<float>(end_left.x()), static_cast<float>(end_left.y()), static_cast<float>(end_left.z())));
+
+            osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+            geom->setVertexArray(verts);
+            geom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+
+            osg::ref_ptr<osg::Vec4Array> color_arr = new osg::Vec4Array;
+            color_arr->push_back(color);
+            geom->setColorArray(color_arr);
+            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+            geom->setDataVariance(osg::Object::STATIC);
+            osgUtil::SmoothingVisitor::smooth(*geom, 0.0);
+
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            geode->addDrawable(geom);
+            geode->getOrCreateStateSet()->setAttributeAndModes(
+                GetOrCreateMaterial("ObjectMark", color, static_cast<uint8_t>(RoadGeom::MaterialType::OBJECT_MARKING)));
+            group->addChild(geode);
+        };
+
+        for (size_t i = 0; i < segment_count; ++i)
+        {
+            const double seg_s   = arc_s[i];
+            const double seg_e   = arc_s[i + 1];
+            const double seg_len = seg_e - seg_s;
+            if (seg_len < SMALL_NUMBER)
+            {
+                continue;
+            }
+
+            const double local_start = std::min(start_offset, seg_len);
+            const double local_end   = std::max(local_start, seg_len - stop_offset);
+            if (local_end <= local_start + SMALL_NUMBER)
+            {
+                continue;
+            }
+
+            if (dashed)
+            {
+                double local_t = local_start;
+                while (local_t < local_end - SMALL_NUMBER)
+                {
+                    const double local_t_end = std::min(local_t + line_length, local_end);
+                    // For dashed markings, use edge centerline + constant segment normal to keep each dash rectangular.
+                    emit_segment_aligned_dash(i, local_t, local_t_end);
+                    local_t += line_length + space_length;
+                }
+            }
+            else
+            {
+                double local_draw_len = local_end - local_start;
+                if (line_length > SMALL_NUMBER)
+                {
+                    local_draw_len = std::min(local_draw_len, line_length);
+                }
+
+                const bool use_segment_aligned_solid = line_length > SMALL_NUMBER || start_offset > SMALL_NUMBER || stop_offset > SMALL_NUMBER;
+                if (use_segment_aligned_solid)
+                {
+                    emit_segment_aligned_dash(i, local_start, local_start + local_draw_len);
+                }
+                else
+                {
+                    emit_quad(seg_s + local_start, seg_s + local_start + local_draw_len);
+                }
+            }
+        }
+
+        return group->getNumChildren() > 0 ? group : nullptr;
+    }
+
+    osg::ref_ptr<osg::Group> RoadGeom::CreateObjectMarkingsGeom(const std::vector<MarkingEdge>&               edges,
+                                                                const roadmanager::RMObjectMarkingDefinition& marking,
+                                                                const osg::Vec4&                              color)
+    {
+        if (edges.empty())
+        {
+            return nullptr;
+        }
+
+        const double mark_width   = std::max(0.01, marking.width.value_or(0.12));
+        double       line_length  = std::max(0.0, marking.lineLength.value_or(marking.length.value_or(0.0)));
+        double       space_length = std::max(0.0, marking.spaceLength.value_or(0.0));
+        const double start_offset = std::max(0.0, marking.startOffset.value_or(0.0));
+        const double stop_offset  = std::max(0.0, marking.stopOffset.value_or(0.0));
+
+        if (space_length < SMALL_NUMBER)
+        {
+            space_length = 0.0;
+            line_length  = std::numeric_limits<double>::infinity();
+        }
+
+        const bool dashed = space_length > SMALL_NUMBER && line_length > SMALL_NUMBER;
+
+        osg::ref_ptr<osg::Group> group = new osg::Group;
+        for (const MarkingEdge& edge : edges)
+        {
+            osg::Vec3d   dir(edge.b.x() - edge.a.x(), edge.b.y() - edge.a.y(), 0.0);
+            const double edge_len = std::sqrt(dir.x() * dir.x() + dir.y() * dir.y());
+            if (edge_len < SMALL_NUMBER)
+            {
+                continue;
+            }
+
+            const double eff_start = start_offset;
+            const double eff_end   = std::max(eff_start, edge_len - stop_offset);
+            if (eff_end <= eff_start + SMALL_NUMBER)
+            {
+                continue;
+            }
+
+            osg::Vec3d n(-dir.y() / edge_len, dir.x() / edge_len, 0.0);
+            n *= (0.5 * mark_width);
+
+            auto point_at = [&](double t) -> osg::Vec3d
+            {
+                const double f = t / edge_len;
+                return osg::Vec3d(edge.a.x() + dir.x() * f, edge.a.y() + dir.y() * f, edge.a.z() + (edge.b.z() - edge.a.z()) * f);
+            };
+
+            double t = eff_start;
+            while (t < eff_end - SMALL_NUMBER)
+            {
+                const double t_end = dashed ? std::min(t + line_length, eff_end) : eff_end;
+                if (t_end - t < SMALL_NUMBER)
+                {
+                    break;
+                }
+
+                const osg::Vec3d p0 = point_at(t);
+                const osg::Vec3d p1 = point_at(t_end);
+
+                osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+                verts->push_back(osg::Vec3(static_cast<float>(p0.x() + n.x()), static_cast<float>(p0.y() + n.y()), static_cast<float>(p0.z())));
+                verts->push_back(osg::Vec3(static_cast<float>(p0.x() - n.x()), static_cast<float>(p0.y() - n.y()), static_cast<float>(p0.z())));
+                verts->push_back(osg::Vec3(static_cast<float>(p1.x() - n.x()), static_cast<float>(p1.y() - n.y()), static_cast<float>(p1.z())));
+                verts->push_back(osg::Vec3(static_cast<float>(p1.x() + n.x()), static_cast<float>(p1.y() + n.y()), static_cast<float>(p1.z())));
+
+                osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                geom->setVertexArray(verts);
+                geom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+
+                osg::ref_ptr<osg::Vec4Array> color_arr = new osg::Vec4Array;
+                color_arr->push_back(color);
+                geom->setColorArray(color_arr);
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                geom->setDataVariance(osg::Object::STATIC);
+                osgUtil::SmoothingVisitor::smooth(*geom, 0.0);
+
+                osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+                geode->addDrawable(geom);
+                geode->getOrCreateStateSet()->setAttributeAndModes(
+                    GetOrCreateMaterial("ObjectMark", color, static_cast<uint8_t>(RoadGeom::MaterialType::OBJECT_MARKING)));
+                group->addChild(geode);
+
+                if (!dashed)
+                {
+                    break;  // solid: single quad per edge
+                }
+                t += line_length + space_length;
+            }
+        }
+
+        return group->getNumChildren() > 0 ? group : nullptr;
     }
 
     osg::ref_ptr<osg::Material> RoadGeom::GetOrCreateMaterial(const std::string& basename,
@@ -1317,410 +1933,7 @@ namespace roadgeom
                 objGroup->addChild(signGroup);
             }
 
-            for (unsigned int o = 0; o < road->GetNumberOfObjects(); o++)
-            {
-                roadmanager::RMObject* object = road->GetRoadObject(o);
-                osg::Vec4              color;
-                tx                   = nullptr;
-                std::string obj_type = prefix_road_object;  // road object is default
-                switch (object->GetTunnelComponentType())
-                {
-                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
-                        obj_type = prefix_tunnel_wall;
-                        break;
-                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
-                        obj_type = prefix_tunnel_roof;
-                        break;
-                }
-
-                for (unsigned int c = 0; c < 4; c++)
-                {
-                    color[c] = object->GetColor()[c];
-                }
-
-                if (object->GetNumberOfOutlines() > 0 &&
-                    object->GetNumberOfRepeats() == 0)  // if repeats are defined, wait and see if outline should replace failed 3D model or not
-                {
-                    for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
-                    {
-                        roadmanager::Outline*    outline = object->GetOutline(j);
-                        osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
-                        if (olgroup != nullptr)
-                        {
-                            SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
-                            objGroup->addChild(olgroup);
-                        }
-                    }
-                    LOG_INFO("Created outline geometry for object {}.", object->GetName());
-                    LOG_DEBUG("  if it looks strange, e.g.faces too dark or light color, ");
-                    LOG_DEBUG("  check that corners are defined counter-clockwise (as OpenGL default).");
-                }
-                else
-                {
-                    double orientation = object->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? M_PI : 0.0;
-
-                    // absolute path or relative to current directory
-                    std::string filename = object->GetName();
-
-                    // Assume name is representing a 3D model filename
-                    if (!filename.empty())
-                    {
-                        if (FileNameExtOf(filename) == "")
-                        {
-                            filename += ".osgb";  // add missing extension
-                        }
-
-                        bool        found = false;
-                        std::string located_file_path =
-                            LocateFile(filename,
-                                       {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models", DirNameOf(exe_path) + "/../resources/models"},
-                                       "Road object 3D model",
-                                       found);
-
-                        if (found)
-                        {
-                            tx = LoadRoadFeature(road, located_file_path);
-                            object->SetModel3DFullPath(located_file_path);
-                        }
-
-                        if (tx == nullptr)
-                        {
-                            LOG_WARN("Failed to load road object model file: {} ({}). Creating a bounding box as stand in.",
-                                     FileNameOf(filename),
-                                     object->GetName());
-                        }
-                    }
-
-                    roadmanager::Repeat*         rep     = object->GetRepeat();
-                    int                          nCopies = 0;
-                    double                       cur_s   = 0.0;
-                    osg::ref_ptr<osg::Vec3Array> vertices_right_side;
-                    osg::ref_ptr<osg::Vec3Array> vertices_left_side;
-                    osg::ref_ptr<osg::Vec3Array> vertices_top;
-                    osg::ref_ptr<osg::Vec3Array> vertices_bottom;
-                    osg::ref_ptr<osg::Group>     group;
-
-                    if (tx == nullptr)  // No model loaded
-                    {
-                        if (rep && rep->GetDistance() < SMALL_NUMBER)  //  non continuous objects
-                        {
-                            // use outline, if exists
-                            if (object->GetNumberOfOutlines() > 0)
-                            {
-                                for (unsigned int j = 0; j < object->GetNumberOfOutlines(); j++)
-                                {
-                                    roadmanager::Outline*    outline = object->GetOutline(j);
-                                    osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
-                                    if (olgroup != nullptr)
-                                    {
-                                        SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
-                                        objGroup->addChild(olgroup);
-                                    }
-                                }
-                                continue;
-                            }
-                            else
-                            {
-                                // create stand in object
-                                vertices_left_side  = new osg::Vec3Array;
-                                vertices_right_side = new osg::Vec3Array;
-                                vertices_top        = new osg::Vec3Array;
-                                vertices_bottom     = new osg::Vec3Array;
-                                group               = new osg::Group();
-                            }
-                        }
-                        else
-                        {
-                            // create a bounding box to represent the object
-                            tx = new osg::PositionAttitudeTransform;
-
-                            // avoid zero width, length and width - set to a minimum value of 0.05m
-                            osg::ref_ptr<osg::ShapeDrawable> shape =
-                                new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0f, 0.0f, 0.5f * MAX(0.05f, static_cast<float>(object->GetHeight()))),
-                                                                    MAX(0.05f, static_cast<float>(object->GetLength())),
-                                                                    MAX(0.05f, static_cast<float>(object->GetWidth())),
-                                                                    MAX(0.05f, static_cast<float>(object->GetHeight()))));
-
-                            shape->setColor(color);
-                            tx->addChild(shape);
-                        }
-                    }
-
-                    double dim_x = 0.0;
-                    double dim_y = 0.0;
-                    double dim_z = 0.0;
-
-                    osg::BoundingBox boundingBox;
-                    if (tx != nullptr)
-                    {
-                        osg::ComputeBoundsVisitor cbv;
-                        tx->accept(cbv);
-                        boundingBox = cbv.getBoundingBox();
-
-                        dim_x = boundingBox._max.x() - boundingBox._min.x();
-                        dim_y = boundingBox._max.y() - boundingBox._min.y();
-                        dim_z = boundingBox._max.z() - boundingBox._min.z();
-                        if (object->GetLength() < SMALL_NUMBER && dim_x > SMALL_NUMBER)
-                        {
-                            LOG_WARN("Object {} missing length, set to bounding box length {:.2f}", object->GetName(), dim_x);
-                            object->SetLength(dim_x);
-                        }
-                        if (object->GetWidth() < SMALL_NUMBER && dim_y > SMALL_NUMBER)
-                        {
-                            LOG_WARN("Object {} missing width, set to bounding box width {:.2f}", object->GetName(), dim_y);
-                            object->SetWidth(dim_y);
-                        }
-                        if (object->GetHeight() < SMALL_NUMBER && dim_z > SMALL_NUMBER)
-                        {
-                            LOG_WARN("Object {} missing height, set to bounding box height {:.2f}", object->GetName(), dim_z);
-                            object->SetHeight(dim_z);
-                        }
-                    }
-
-                    double                   lastLODs = 0.0;  // used for putting object copies in LOD groups
-                    osg::ref_ptr<osg::Group> LODGroup = 0;
-
-                    osg::ref_ptr<osg::PositionAttitudeTransform> clone = 0;
-
-                    for (; nCopies < 1 ||
-                           (rep && rep->length_ > SMALL_NUMBER && cur_s < rep->GetLength() + SMALL_NUMBER && cur_s + rep->GetS() < road->GetLength());
-                         nCopies++)
-                    {
-                        double s;
-                        double scale_x = 1.0;
-                        double scale_y = 1.0;
-                        double scale_z = 1.0;
-
-                        if (rep && cur_s + rep->GetS() + (object->GetLength() * scale_x) * cos(object->GetHOffset()) > road->GetLength())
-                        {
-                            break;  // object would reach outside specified total length
-                        }
-
-                        if (nCopies == 0)
-                        {
-                            // first object
-                            clone = tx;
-                        }
-                        else
-                        {
-                            clone = tx != nullptr ? dynamic_cast<osg::PositionAttitudeTransform*>(tx->clone(osg::CopyOp::DEEP_COPY_ALL)) : nullptr;
-                            clone->setDataVariance(osg::Object::STATIC);
-                        }
-
-                        if (clone != nullptr)
-                        {
-                            SetNodeName(*clone, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(nCopies));
-                        }
-
-                        if (rep == nullptr)
-                        {
-                            s = object->GetS();
-
-                            if (object->GetLength() > SMALL_NUMBER)
-                            {
-                                scale_x = object->GetLength() / dim_x;
-                            }
-                            if (object->GetWidth() > SMALL_NUMBER)
-                            {
-                                scale_y = object->GetWidth() / dim_y;
-                            }
-                            if (object->GetHeight() > SMALL_NUMBER)
-                            {
-                                scale_z = object->GetHeight() / dim_z;
-                            }
-
-                            // position mode relative for aligning to road heading
-                            pos.SetTrackPosMode(road->GetId(),
-                                                object->GetS(),
-                                                object->GetT(),
-                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
-                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
-
-                            clone->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
-                            clone->setScale(osg::Vec3(static_cast<float>(scale_x), static_cast<float>(scale_y), static_cast<float>(scale_z)));
-
-                            clone->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
-                                                         static_cast<float>(pos.GetY() - origin[1]),
-                                                         static_cast<float>(object->GetZOffset() + pos.GetZ())));
-
-                            // First align to road orientation
-                            osg::Quat quatRoad(osg::Quat(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH(), osg::Z_AXIS));
-                            // Specified local rotation
-                            osg::Quat quatLocal(orientation + object->GetHOffset(), osg::Vec3(osg::Z_AXIS));  // Heading
-                            // Combine
-                            clone->setAttitude(quatLocal * quatRoad);
-                        }
-                        else  // repeated objects (separate or continuous)
-                        {
-                            double factor  = cur_s / rep->GetLength();
-                            double t       = rep->GetTStart() + factor * (rep->GetTEnd() - rep->GetTStart());
-                            s              = rep->GetS() + cur_s;
-                            double zOffset = rep->GetZOffsetStart() + factor * (rep->GetZOffsetEnd() - rep->GetZOffsetStart());
-
-                            // position mode relative for aligning to road heading
-                            pos.SetTrackPosMode(road->GetId(),
-                                                s,
-                                                t,
-                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
-                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
-
-                            // Find angle based on delta t
-                            double h_offset = atan2(rep->GetTEnd() - rep->GetTStart(), rep->GetLength());
-                            pos.SetHeadingRelative(h_offset);
-
-                            if (tx == nullptr && rep->GetDistance() < SMALL_NUMBER)  // one single continuous object to be created
-                            {
-                                // add two vertices at this s-value
-                                double x   = 0.0;
-                                double y   = rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart());
-                                double z   = rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart());
-                                double p0x = 0.0;
-                                double p0y = 0.0;
-                                double p1x = 0.0;
-                                double p1y = 0.0;
-                                RotateVec2D(x, y, pos.GetH(), p0x, p0y);
-                                RotateVec2D(x, -y, pos.GetH(), p1x, p1y);
-
-                                vertices_right_side->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ()));
-                                vertices_right_side->push_back(
-                                    osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ() + z));
-                                // add left vertices in reversed order, since they will be concatenated later in reversed order
-                                vertices_left_side->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ() + z));
-                                vertices_left_side->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ()));
-                                vertices_top->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ() + z));
-                                vertices_top->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ() + z));
-                                vertices_bottom->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ()));
-                                vertices_bottom->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ()));
-                            }
-                            else  // separate objects
-                            {
-                                if (rep->GetLengthStart() > SMALL_NUMBER || rep->GetLengthEnd() > SMALL_NUMBER)
-                                {
-                                    scale_x =
-                                        ((rep->GetLengthStart() + factor * (rep->GetLengthEnd() - rep->GetLengthStart())) / cos(h_offset)) / dim_x;
-                                }
-                                else
-                                {
-                                    scale_x = (abs(h_offset) < M_PI_2 - SMALL_NUMBER) ? scale_x / cos(h_offset) : LARGE_NUMBER;
-                                }
-                                if (rep->GetWidthStart() > SMALL_NUMBER || rep->GetWidthEnd() > SMALL_NUMBER)
-                                {
-                                    scale_y = (rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart())) / dim_y;
-                                }
-                                if (rep->GetHeightStart() > SMALL_NUMBER || rep->GetHeightEnd() > SMALL_NUMBER)
-                                {
-                                    scale_z = (rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart())) / dim_z;
-                                }
-
-                                clone->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
-                                clone->setScale(osg::Vec3(static_cast<float>(scale_x), static_cast<float>(scale_y), static_cast<float>(scale_z)));
-                                clone->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
-                                                             static_cast<float>(pos.GetY() - origin[1]),
-                                                             static_cast<float>(pos.GetZ() + zOffset)));
-
-                                // First align to road orientation
-                                osg::Quat quatRoad(osg::Quat(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH(), osg::Z_AXIS));
-
-                                // Specified local rotation
-                                osg::Quat quatLocal(object->GetHOffset(), osg::Vec3(osg::Z_AXIS));  // Heading
-
-                                // Combine
-                                clone->setAttitude(quatLocal * quatRoad);
-                            }
-
-                            // increase current s according to distance
-                            if (rep->distance_ > SMALL_NUMBER)
-                            {
-                                cur_s += rep->distance_;
-                            }
-                            else
-                            {
-                                // for continuous objects, move along s wrt to road curvature
-                                cur_s += pos.DistanceToDS(object->GetLength() < SMALL_NUMBER
-                                                              ? MIN(rep->GetLength(), DEFAULT_LENGTH_FOR_CONTINUOUS_OBJS)
-                                                              : MIN(object->GetLength(), DEFAULT_LENGTH_FOR_CONTINUOUS_OBJS));
-                            }
-                        }
-
-                        if (tx != nullptr)  // wait with continuous object
-                        {
-                            clone->setDataVariance(osg::Object::STATIC);
-                            if (LODGroup == 0 || s - lastLODs > 0.5 * LOD_DIST_ROAD_FEATURES)
-                            {
-                                // add current LOD and create a new one
-                                osg::ref_ptr<osg::LOD> lod = new osg::LOD();
-                                LODGroup                   = new osg::Group();
-                                lod->addChild(LODGroup);
-                                lod->setRange(
-                                    0,
-                                    0,
-                                    LOD_DIST_ROAD_FEATURES + MAX(boundingBox.xMax() - boundingBox.xMin(), boundingBox.yMax() - boundingBox.yMin()));
-                                objGroup->addChild(lod);
-                                lastLODs = s;
-                            }
-
-                            LODGroup->addChild(clone);
-                        }
-                    }
-                    if (tx == nullptr)
-                    {
-                        // Create geometry for continuous object
-                        osg::ref_ptr<osg::Geode>    geode  = new osg::Geode;
-                        osg::ref_ptr<osg::Geometry> geom[] = {new osg::Geometry, new osg::Geometry, new osg::Geometry};
-
-                        // Concatenate vertices for right and left side into one single array going around the object counter clockwise
-                        osg::ref_ptr<osg::Vec3Array> vertices = vertices_right_side;
-                        vertices->insert(vertices->end(), vertices_left_side->rbegin(), vertices_left_side->rend());
-
-                        // Finally, duplicate first set of vertices to the end in order to close the geometry
-                        vertices->insert(vertices->end(), vertices_right_side->begin(), vertices_right_side->begin() + 2);
-
-                        geom[0]->setVertexArray(vertices.get());
-                        geom[0]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices->size())));
-
-                        // Add roof
-                        geom[1]->setVertexArray(vertices_top.get());
-                        geom[1]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices_top->size())));
-
-                        // Add floor
-                        geom[2]->setVertexArray(vertices_bottom.get());
-                        geom[2]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices_bottom->size())));
-
-                        osgUtil::Tessellator tessellator;
-                        tessellator.retessellatePolygons(*geom[1]);
-                        tessellator.retessellatePolygons(*geom[2]);
-
-                        osg::ref_ptr<osg::Vec4Array> color_obj = new osg::Vec4Array();
-                        color_obj->push_back(color);
-                        for (auto& g : geom)
-                        {
-                            osgUtil::SmoothingVisitor::smooth(*g, 0.5);
-                            g->setDataVariance(osg::Object::STATIC);
-                            g->setUseDisplayList(true);
-                            g->setColorArray(color_obj);
-                            g->setColorBinding(osg::Geometry::BIND_OVERALL);
-                            geode->addDrawable(g);
-                            group->addChild(g);
-                        }
-
-                        osg::ComputeBoundsVisitor cbv;
-                        group->accept(cbv);
-                        boundingBox = cbv.getBoundingBox();
-
-                        osg::ref_ptr<osg::LOD> lod = new osg::LOD();
-                        lod->addChild(group);
-                        lod->setRange(0,
-                                      0,
-                                      LOD_DIST_ROAD_FEATURES + MAX(boundingBox.xMax() - boundingBox.xMin(), boundingBox.yMax() - boundingBox.yMin()));
-                        objGroup->addChild(lod);
-                    }
-
-                    if (tx == nullptr)
-                    {
-                        LOG_WARN("No tx");
-                    }
-                }
-            }
+            AddExpandedObjectsForRoad(road, origin, objGroup, exe_path);
         }
 
         if (optimize_)
@@ -1933,14 +2146,1853 @@ namespace roadgeom
         material_->setDiffuse(osg::Material::FRONT_AND_BACK, color);
         material_->setAmbient(osg::Material::FRONT_AND_BACK, color);
         geode->getOrCreateStateSet()->setAttributeAndModes(material_.get());
-        geode->getOrCreateStateSet()->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
-        geode->getOrCreateStateSet()->setRenderBinDetails(20, "DepthSortedBin", osg::StateSet::RenderBinMode::OVERRIDE_RENDERBIN_DETAILS);
         geode->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
-        geode->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::ON);
+
+        const bool transparent = (color.a() < 0.999f);
+        if (transparent)
+        {
+            geode->getOrCreateStateSet()->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+            geode->getOrCreateStateSet()->setRenderBinDetails(20, "DepthSortedBin", osg::StateSet::RenderBinMode::OVERRIDE_RENDERBIN_DETAILS);
+            geode->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::ON);
+        }
+        else
+        {
+            geode->getOrCreateStateSet()->setRenderingHint(osg::StateSet::OPAQUE_BIN);
+            geode->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::OFF);
+        }
 
         group->addChild(geode);
 
         return group;
+    }
+
+    osg::ref_ptr<osg::Group> RoadGeom::CreateExpandedContinuousSegmentGeom(const std::array<roadmanager::Vec2, 4>& corners,
+                                                                           double                                  z0,
+                                                                           double                                  z1,
+                                                                           double                                  heightStart,
+                                                                           double                                  heightEnd,
+                                                                           bool                                    emitStartCap,
+                                                                           bool                                    emitEndCap,
+                                                                           osg::Vec4                               color,
+                                                                           const osg::Vec3d&                       origin)
+    {
+        // Corner layout: [0]=start/neg-t  [1]=start/pos-t  [2]=end/pos-t  [3]=end/neg-t
+        const auto toX = [&](double v) { return static_cast<float>(v - origin[0]); };
+        const auto toY = [&](double v) { return static_cast<float>(v - origin[1]); };
+
+        const float c0x = toX(corners[0].x);
+        const float c0y = toY(corners[0].y);
+        const float c1x = toX(corners[1].x);
+        const float c1y = toY(corners[1].y);
+        const float c2x = toX(corners[2].x);
+        const float c2y = toY(corners[2].y);
+        const float c3x = toX(corners[3].x);
+        const float c3y = toY(corners[3].y);
+
+        const float b0 = static_cast<float>(z0);                // base Z at start edge
+        const float b1 = static_cast<float>(z1);                // base Z at end edge
+        const float t0 = b0 + static_cast<float>(heightStart);  // top  Z at start edge
+        const float t1 = b1 + static_cast<float>(heightEnd);    // top  Z at end edge
+
+        // Shared side vertices:
+        // 0=c0 bottom, 1=c0 top, 2=c1 bottom, 3=c1 top, 4=c2 bottom, 5=c2 top, 6=c3 bottom, 7=c3 top
+        osg::ref_ptr<osg::Vec3Array> verts_sides = new osg::Vec3Array(8);
+        (*verts_sides)[0].set(c0x, c0y, b0);
+        (*verts_sides)[1].set(c0x, c0y, t0);
+        (*verts_sides)[2].set(c1x, c1y, b0);
+        (*verts_sides)[3].set(c1x, c1y, t0);
+        (*verts_sides)[4].set(c2x, c2y, b1);
+        (*verts_sides)[5].set(c2x, c2y, t1);
+        (*verts_sides)[6].set(c3x, c3y, b1);
+        (*verts_sides)[7].set(c3x, c3y, t1);
+
+        osg::ref_ptr<osg::DrawElementsUInt> side_indices = new osg::DrawElementsUInt(GL_QUADS);
+
+        // Outer longitudinal walls (always visible from outside).
+        // Right wall (negative t): c0 -> c3
+        side_indices->push_back(0);
+        side_indices->push_back(1);
+        side_indices->push_back(7);
+        side_indices->push_back(6);
+
+        // Left wall (positive t): c2 -> c1
+        side_indices->push_back(4);
+        side_indices->push_back(5);
+        side_indices->push_back(3);
+        side_indices->push_back(2);
+
+        // End caps are only needed on the outermost segments.
+        if (emitStartCap)
+        {
+            side_indices->push_back(2);
+            side_indices->push_back(3);
+            side_indices->push_back(1);
+            side_indices->push_back(0);
+        }
+
+        if (emitEndCap)
+        {
+            side_indices->push_back(6);
+            side_indices->push_back(7);
+            side_indices->push_back(5);
+            side_indices->push_back(4);
+        }
+
+        // Top face QUAD CCW from above: c0, c3, c2, c1
+        osg::ref_ptr<osg::Vec3Array> verts_top = new osg::Vec3Array(4);
+        (*verts_top)[0].set(c0x, c0y, t0);
+        (*verts_top)[1].set(c3x, c3y, t1);
+        (*verts_top)[2].set(c2x, c2y, t1);
+        (*verts_top)[3].set(c1x, c1y, t0);
+
+        // Bottom face QUAD (opposite winding to top): c0, c1, c2, c3
+        osg::ref_ptr<osg::Vec3Array> verts_bottom = new osg::Vec3Array(4);
+        (*verts_bottom)[0].set(c0x, c0y, b0);
+        (*verts_bottom)[1].set(c1x, c1y, b0);
+        (*verts_bottom)[2].set(c2x, c2y, b1);
+        (*verts_bottom)[3].set(c3x, c3y, b1);
+
+        osg::ref_ptr<osg::Vec4Array> color_arr = new osg::Vec4Array(1);
+        (*color_arr)[0]                        = color;
+
+        osg::ref_ptr<osg::Geometry> geom_sides = new osg::Geometry;
+        geom_sides->setVertexArray(verts_sides);
+        geom_sides->addPrimitiveSet(side_indices);
+        geom_sides->setColorArray(color_arr);
+        geom_sides->setColorBinding(osg::Geometry::BIND_OVERALL);
+        osgUtil::SmoothingVisitor::smooth(*geom_sides, 0.5);
+        geom_sides->setDataVariance(osg::Object::STATIC);
+        geom_sides->setUseDisplayList(true);
+
+        osg::ref_ptr<osg::Geometry> geom_top = new osg::Geometry;
+        geom_top->setVertexArray(verts_top);
+        geom_top->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+        geom_top->setColorArray(color_arr);
+        geom_top->setColorBinding(osg::Geometry::BIND_OVERALL);
+        osgUtil::SmoothingVisitor::smooth(*geom_top, 0.5);
+        geom_top->setDataVariance(osg::Object::STATIC);
+        geom_top->setUseDisplayList(true);
+
+        osg::ref_ptr<osg::Geometry> geom_bottom = new osg::Geometry;
+        geom_bottom->setVertexArray(verts_bottom);
+        geom_bottom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+        geom_bottom->setColorArray(color_arr);
+        geom_bottom->setColorBinding(osg::Geometry::BIND_OVERALL);
+        osgUtil::SmoothingVisitor::smooth(*geom_bottom, 0.5);
+        geom_bottom->setDataVariance(osg::Object::STATIC);
+        geom_bottom->setUseDisplayList(true);
+
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+        geode->addDrawable(geom_sides);
+        geode->addDrawable(geom_top);
+        geode->addDrawable(geom_bottom);
+
+        osg::ref_ptr<osg::Material> mat = new osg::Material;
+        mat->setDiffuse(osg::Material::FRONT_AND_BACK, color);
+        mat->setAmbient(osg::Material::FRONT_AND_BACK, color);
+        geode->getOrCreateStateSet()->setAttributeAndModes(mat.get());
+        geode->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+
+        osg::ref_ptr<osg::Group> seg_group = new osg::Group;
+        seg_group->addChild(geode);
+        return seg_group;
+    }
+
+    void RoadGeom::AddExpandedObjectsForRoad(roadmanager::Road*       road,
+                                             const osg::Vec3d&        origin,
+                                             osg::ref_ptr<osg::Group> parent,
+                                             const std::string&       exe_path)
+    {
+        if (road == nullptr)
+        {
+            return;
+        }
+
+        // Build id→color and id→object lookups from legacy RMObject.
+        std::unordered_map<id_t, osg::Vec4>                              color_map;
+        std::unordered_map<id_t, roadmanager::RMObject*>                 object_map;
+        std::unordered_map<id_t, const roadmanager::RMObjectDefinition*> def_map;
+        for (unsigned int o = 0; o < road->GetNumberOfObjects(); ++o)
+        {
+            roadmanager::RMObject* obj = road->GetRoadObject(o);
+            if (obj == nullptr)
+            {
+                continue;
+            }
+            osg::Vec4 c;
+            for (int ci = 0; ci < 4; ++ci)
+            {
+                c[ci] = obj->GetColor()[ci];
+            }
+            color_map[obj->GetId()]  = c;
+            object_map[obj->GetId()] = obj;
+        }
+
+        for (unsigned int od = 0; od < road->GetNumberOfObjectDefinitions(); ++od)
+        {
+            const roadmanager::RMObjectDefinition* def = road->GetObjectDefinition(od);
+            if (def == nullptr)
+            {
+                continue;
+            }
+            def_map[def->id] = def;
+        }
+
+        auto get_object_node_prefix = [&](id_t source_object_id) -> const std::string&
+        {
+            auto it = object_map.find(source_object_id);
+            if (it != object_map.end() && it->second != nullptr)
+            {
+                switch (it->second->GetTunnelComponentType())
+                {
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
+                        return prefix_tunnel_wall;
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
+                        return prefix_tunnel_roof;
+                    default:
+                        break;
+                }
+            }
+
+            return prefix_road_object;
+        };
+
+        const std::vector<roadmanager::RMExpandedObject> expanded = roadmanager::ExpandRoadObjectDefinitions(*road);
+
+        std::unordered_map<uint64_t, int> first_segment_index_by_repeat;
+        std::unordered_map<uint64_t, int> last_segment_index_by_repeat;
+        auto                              make_repeat_key = [](id_t source_object_id, int repeat_index) -> uint64_t
+        { return (static_cast<uint64_t>(source_object_id) << 32) | static_cast<uint32_t>(repeat_index); };
+
+        for (const auto& exp : expanded)
+        {
+            if (exp.kind != roadmanager::RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT || exp.segmentIndex < 0)
+            {
+                continue;
+            }
+
+            const uint64_t key = make_repeat_key(exp.sourceObjectId, exp.repeatIndex);
+            auto           itf = first_segment_index_by_repeat.find(key);
+            auto           itl = last_segment_index_by_repeat.find(key);
+
+            if (itf == first_segment_index_by_repeat.end() || exp.segmentIndex < itf->second)
+            {
+                first_segment_index_by_repeat[key] = exp.segmentIndex;
+            }
+            if (itl == last_segment_index_by_repeat.end() || exp.segmentIndex > itl->second)
+            {
+                last_segment_index_by_repeat[key] = exp.segmentIndex;
+            }
+        }
+
+        roadmanager::Position pos;
+        struct ExpandedRoadObjectModel
+        {
+            bool                                         attempted = false;
+            std::string                                  full_path;
+            osg::ref_ptr<osg::PositionAttitudeTransform> tx    = nullptr;
+            double                                       dim_x = 0.0;
+            double                                       dim_y = 0.0;
+            double                                       dim_z = 0.0;
+        };
+        std::unordered_map<id_t, ExpandedRoadObjectModel> model_cache;
+
+        auto get_model_for_source = [&](id_t source_object_id) -> ExpandedRoadObjectModel&
+        {
+            ExpandedRoadObjectModel& model = model_cache[source_object_id];
+            if (model.attempted)
+            {
+                return model;
+            }
+
+            model.attempted = true;
+
+            std::string source_name;
+            auto        oit = object_map.find(source_object_id);
+            if (oit != object_map.end() && oit->second != nullptr)
+            {
+                source_name = oit->second->GetName();
+            }
+            else
+            {
+                auto dit = def_map.find(source_object_id);
+                if (dit != def_map.end() && dit->second != nullptr)
+                {
+                    source_name = dit->second->name;
+                }
+            }
+
+            model.full_path = LocateRoadObjectModelFile(source_name, odrManager_->GetOpenDriveFilename(), exe_path);
+            if (model.full_path.empty())
+            {
+                return model;
+            }
+
+            model.tx = LoadRoadFeature(road, model.full_path);
+            if (model.tx == nullptr)
+            {
+                LOG_WARN("Failed to load road object model file: {} ({}). Creating fallback geometry.", FileNameOf(model.full_path), source_name);
+                return model;
+            }
+
+            GetNodeDimensions(*model.tx, model.dim_x, model.dim_y, model.dim_z);
+            if (oit != object_map.end() && oit->second != nullptr)
+            {
+                oit->second->SetModel3DFullPath(model.full_path);
+            }
+
+            return model;
+        };
+
+        auto resolve_outline_corner_index =
+            [&](roadmanager::Outline* outline, const roadmanager::RMOutlineDefinition* outline_def, int ref) -> std::optional<size_t>
+        {
+            if (outline == nullptr)
+            {
+                return std::nullopt;
+            }
+
+            const size_t n = outline->corner_.size();
+            if (n == 0)
+            {
+                return std::nullopt;
+            }
+
+            bool has_explicit_corner_ids = false;
+            if (outline_def != nullptr)
+            {
+                for (const auto& corner_def : outline_def->corners)
+                {
+                    if (corner_def.id != ID_UNDEFINED)
+                    {
+                        has_explicit_corner_ids = true;
+                        break;
+                    }
+                }
+
+                if (has_explicit_corner_ids)
+                {
+                    if (ref < 0)
+                    {
+                        return std::nullopt;
+                    }
+
+                    const id_t ref_id = static_cast<id_t>(ref);
+                    for (size_t i = 0; i < outline_def->corners.size() && i < n; ++i)
+                    {
+                        if (outline_def->corners[i].id == ref_id)
+                        {
+                            return i;
+                        }
+                    }
+                    return std::nullopt;
+                }
+            }
+
+            if (ref >= 0 && ref < static_cast<int>(n))
+            {
+                return static_cast<size_t>(ref);
+            }
+            if (ref > 0 && ref <= static_cast<int>(n))
+            {
+                return static_cast<size_t>(ref - 1);
+            }
+            return std::nullopt;
+        };
+
+        auto build_outline_marking_edges = [&](roadmanager::Outline*                         outline,
+                                               const roadmanager::RMOutlineDefinition*       outline_def,
+                                               const roadmanager::RMObjectMarkingDefinition& marking,
+                                               double                                        z_offset) -> std::vector<MarkingEdge>
+        {
+            std::vector<MarkingEdge> edges;
+            if (outline == nullptr || outline->corner_.size() < 2)
+            {
+                return edges;
+            }
+
+            if (marking.cornerReferences.size() >= 2)
+            {
+                for (size_t k = 0; k + 1 < marking.cornerReferences.size(); ++k)
+                {
+                    std::optional<size_t> i_opt = resolve_outline_corner_index(outline, outline_def, marking.cornerReferences[k]);
+                    std::optional<size_t> j_opt = resolve_outline_corner_index(outline, outline_def, marking.cornerReferences[k + 1]);
+                    if (!i_opt.has_value() || !j_opt.has_value())
+                    {
+                        continue;
+                    }
+
+                    const size_t i = i_opt.value();
+                    const size_t j = j_opt.value();
+                    if (i == j)
+                    {
+                        continue;
+                    }
+
+                    double x0, y0, z0, x1, y1, z1;
+                    outline->corner_[i]->GetPos(x0, y0, z0);
+                    outline->corner_[j]->GetPos(x1, y1, z1);
+
+                    const double mark_z0 = z0 + z_offset + ROADMARK_Z_OFFSET;
+                    const double mark_z1 = z1 + z_offset + ROADMARK_Z_OFFSET;
+                    edges.push_back({osg::Vec3d(x0 - origin[0], y0 - origin[1], mark_z0), osg::Vec3d(x1 - origin[0], y1 - origin[1], mark_z1)});
+                }
+
+                return edges;
+            }
+
+            const size_t edge_count = outline->closed_ ? outline->corner_.size() : (outline->corner_.size() - 1);
+            for (size_t i = 0; i < edge_count; ++i)
+            {
+                const bool include_edge =
+                    marking.edgeReferences.empty() || std::any_of(marking.edgeReferences.begin(),
+                                                                  marking.edgeReferences.end(),
+                                                                  [i, edge_count](int ref) { return EdgeReferenceMatches(ref, i, edge_count); });
+                if (!include_edge)
+                {
+                    continue;
+                }
+
+                const size_t j = (i + 1) % outline->corner_.size();
+                double       x0, y0, z0, x1, y1, z1;
+                outline->corner_[i]->GetPos(x0, y0, z0);
+                outline->corner_[j]->GetPos(x1, y1, z1);
+
+                const double mark_z0 = z0 + z_offset + ROADMARK_Z_OFFSET;
+                const double mark_z1 = z1 + z_offset + ROADMARK_Z_OFFSET;
+                edges.push_back({osg::Vec3d(x0 - origin[0], y0 - origin[1], mark_z0), osg::Vec3d(x1 - origin[0], y1 - origin[1], mark_z1)});
+            }
+
+            return edges;
+        };
+
+        auto build_outline_marking_corner_points = [&](roadmanager::Outline*                         outline,
+                                                       const roadmanager::RMOutlineDefinition*       outline_def,
+                                                       const roadmanager::RMObjectMarkingDefinition& marking,
+                                                       double                                        z_offset) -> std::vector<osg::Vec3d>
+        {
+            std::vector<osg::Vec3d> points;
+            if (outline == nullptr || outline->corner_.empty())
+            {
+                return points;
+            }
+
+            if (marking.cornerReferences.size() < 2)
+            {
+                return points;
+            }
+
+            for (int corner_ref : marking.cornerReferences)
+            {
+                std::optional<size_t> index = resolve_outline_corner_index(outline, outline_def, corner_ref);
+                if (!index.has_value())
+                {
+                    continue;
+                }
+
+                double x, y, z;
+                outline->corner_[index.value()]->GetPos(x, y, z);
+                const double mark_z = z + z_offset + ROADMARK_Z_OFFSET;
+                points.push_back(osg::Vec3d(x - origin[0], y - origin[1], mark_z));
+            }
+
+            return points;
+        };
+
+        auto build_box_marking_edges = [&](const roadmanager::RMExpandedObject&          exp,
+                                           const roadmanager::RMObjectMarkingDefinition& marking,
+                                           double                                        z_offset) -> std::vector<MarkingEdge>
+        {
+            std::vector<MarkingEdge> edges;
+
+            const double w = exp.width.has_value() ? std::max(0.05, exp.width.value()) : 1.0;
+            const double l = exp.length.has_value() ? std::max(0.05, exp.length.value()) : 1.0;
+
+            pos.SetTrackPosMode(road->GetId(),
+                                exp.s,
+                                exp.t,
+                                roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+            auto local_to_world = [&](double lx, double ly) -> osg::Vec3d
+            {
+                double rx = 0.0;
+                double ry = 0.0;
+                RotateVec2D(lx, ly, pos.GetH() + exp.hdg, rx, ry);
+                return osg::Vec3d(pos.GetX() - origin[0] + rx, pos.GetY() - origin[1] + ry, pos.GetZ() + exp.zOffset + z_offset + ROADMARK_Z_OFFSET);
+            };
+
+            const osg::Vec3d c0 = local_to_world(0.5 * l, -0.5 * w);   // front-right
+            const osg::Vec3d c1 = local_to_world(0.5 * l, 0.5 * w);    // front-left
+            const osg::Vec3d c2 = local_to_world(-0.5 * l, 0.5 * w);   // rear-left
+            const osg::Vec3d c3 = local_to_world(-0.5 * l, -0.5 * w);  // rear-right
+
+            std::array<MarkingEdge, 4> box_edges = {{{c0, c1}, {c1, c2}, {c2, c3}, {c3, c0}}};
+
+            if (!marking.edgeReferences.empty())
+            {
+                for (size_t i = 0; i < box_edges.size(); ++i)
+                {
+                    if (std::any_of(marking.edgeReferences.begin(),
+                                    marking.edgeReferences.end(),
+                                    [i](int ref) { return EdgeReferenceMatches(ref, i, 4); }))
+                    {
+                        edges.push_back(box_edges[i]);
+                    }
+                }
+                return edges;
+            }
+
+            for (const auto& side : marking.sides)
+            {
+                if (side == roadmanager::RMObjectMarkingDefinition::Side::FRONT)
+                    edges.push_back(box_edges[0]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::LEFT)
+                    edges.push_back(box_edges[1]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::REAR)
+                    edges.push_back(box_edges[2]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::RIGHT)
+                    edges.push_back(box_edges[3]);
+            }
+
+            return edges;
+        };
+
+        auto resolve_corner_reference_index = [&](const roadmanager::RMOutlineDefinition* outline_def, int ref, size_t n) -> std::optional<size_t>
+        {
+            if (n == 0)
+            {
+                return std::nullopt;
+            }
+
+            bool has_explicit_corner_ids = false;
+            if (outline_def != nullptr)
+            {
+                for (const auto& corner_def : outline_def->corners)
+                {
+                    if (corner_def.id != ID_UNDEFINED)
+                    {
+                        has_explicit_corner_ids = true;
+                        break;
+                    }
+                }
+
+                if (has_explicit_corner_ids)
+                {
+                    if (ref < 0)
+                    {
+                        return std::nullopt;
+                    }
+
+                    const id_t ref_id = static_cast<id_t>(ref);
+                    for (size_t i = 0; i < outline_def->corners.size() && i < n; ++i)
+                    {
+                        if (outline_def->corners[i].id == ref_id)
+                        {
+                            return i;
+                        }
+                    }
+                    return std::nullopt;
+                }
+            }
+
+            if (ref >= 0 && ref < static_cast<int>(n))
+            {
+                return static_cast<size_t>(ref);
+            }
+            if (ref > 0 && ref <= static_cast<int>(n))
+            {
+                return static_cast<size_t>(ref - 1);
+            }
+            return std::nullopt;
+        };
+
+        auto build_continuous_segment_marking_edges = [&](const roadmanager::RMExpandedObject&          exp,
+                                                          const roadmanager::RMOutlineDefinition*       outline_def,
+                                                          const roadmanager::RMObjectMarkingDefinition& marking,
+                                                          double                                        z_offset) -> std::vector<MarkingEdge>
+        {
+            std::vector<MarkingEdge> edges;
+            if (!exp.has_world_corners)
+            {
+                return edges;
+            }
+
+            pos.SetTrackPosMode(road->GetId(),
+                                exp.s,
+                                0.0,
+                                roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+            const double z0 = pos.GetZ() + exp.zOffset + z_offset + ROADMARK_Z_OFFSET;
+
+            pos.SetTrackPosMode(road->GetId(),
+                                exp.sEnd,
+                                0.0,
+                                roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+            const double z1 = pos.GetZ() + exp.zOffsetEnd + z_offset + ROADMARK_Z_OFFSET;
+
+            std::array<osg::Vec3d, 4> corners = {osg::Vec3d(exp.world_corners[0].x - origin[0], exp.world_corners[0].y - origin[1], z0),
+                                                 osg::Vec3d(exp.world_corners[1].x - origin[0], exp.world_corners[1].y - origin[1], z0),
+                                                 osg::Vec3d(exp.world_corners[2].x - origin[0], exp.world_corners[2].y - origin[1], z1),
+                                                 osg::Vec3d(exp.world_corners[3].x - origin[0], exp.world_corners[3].y - origin[1], z1)};
+
+            if (marking.cornerReferences.size() >= 2)
+            {
+                for (size_t k = 0; k + 1 < marking.cornerReferences.size(); ++k)
+                {
+                    std::optional<size_t> i_opt = resolve_corner_reference_index(outline_def, marking.cornerReferences[k], corners.size());
+                    std::optional<size_t> j_opt = resolve_corner_reference_index(outline_def, marking.cornerReferences[k + 1], corners.size());
+                    if (!i_opt.has_value() || !j_opt.has_value() || i_opt.value() == j_opt.value())
+                    {
+                        continue;
+                    }
+
+                    edges.push_back({corners[i_opt.value()], corners[j_opt.value()]});
+                }
+                return edges;
+            }
+
+            const std::array<MarkingEdge, 4> quad_edges = {
+                {{corners[0], corners[1]}, {corners[1], corners[2]}, {corners[2], corners[3]}, {corners[3], corners[0]}}};
+
+            if (!marking.edgeReferences.empty())
+            {
+                for (size_t i = 0; i < quad_edges.size(); ++i)
+                {
+                    if (std::any_of(marking.edgeReferences.begin(),
+                                    marking.edgeReferences.end(),
+                                    [i](int ref) { return EdgeReferenceMatches(ref, i, 4); }))
+                    {
+                        edges.push_back(quad_edges[i]);
+                    }
+                }
+                return edges;
+            }
+
+            for (const auto& side : marking.sides)
+            {
+                if (side == roadmanager::RMObjectMarkingDefinition::Side::FRONT)
+                    edges.push_back(quad_edges[2]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::LEFT)
+                    edges.push_back(quad_edges[1]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::REAR)
+                    edges.push_back(quad_edges[0]);
+                else if (side == roadmanager::RMObjectMarkingDefinition::Side::RIGHT)
+                    edges.push_back(quad_edges[3]);
+            }
+
+            return edges;
+        };
+
+        // Accumulation for continuous-repeat side/edgeRef markings.
+        // Instead of per-segment rendering (which misses mitered joints and resets dash phase),
+        // we collect corner data per segment and stitch into one polyline per side after the main loop.
+        struct ContRepeatSideMarkKey
+        {
+            uint64_t repeat_key;     // make_repeat_key(sourceObjectId, repeatIndex)
+            size_t   marking_index;  // index in def->markings
+            bool     operator==(const ContRepeatSideMarkKey& o) const
+            {
+                return repeat_key == o.repeat_key && marking_index == o.marking_index;
+            }
+        };
+        struct ContRepeatSideMarkKeyHash
+        {
+            size_t operator()(const ContRepeatSideMarkKey& k) const
+            {
+                size_t h = std::hash<uint64_t>{}(k.repeat_key);
+                h ^= std::hash<size_t>{}(k.marking_index) * 2654435761u;
+                return h;
+            }
+        };
+        struct ContRepeatSideMarkAccum
+        {
+            // (segmentIndex, [c0,c1,c2,c3]) — corners at the marking z offset, unsorted
+            std::vector<std::pair<int, std::array<osg::Vec3d, 4>>> seg_corners;
+            const roadmanager::RMObjectMarkingDefinition*          marking_def = nullptr;
+            osg::Vec4                                              color;
+            id_t                                                   source_object_id = 0;
+        };
+        std::unordered_map<ContRepeatSideMarkKey, ContRepeatSideMarkAccum, ContRepeatSideMarkKeyHash> cont_side_mark_accum;
+
+        struct ContRepeatGeomKey
+        {
+            uint64_t repeat_key;
+            bool     operator==(const ContRepeatGeomKey& o) const
+            {
+                return repeat_key == o.repeat_key;
+            }
+        };
+        struct ContRepeatGeomKeyHash
+        {
+            size_t operator()(const ContRepeatGeomKey& k) const
+            {
+                return std::hash<uint64_t>{}(k.repeat_key);
+            }
+        };
+        struct ContRepeatGeomAccum
+        {
+            std::vector<roadmanager::RMExpandedObject> segments;
+            id_t                                       source_object_id = 0;
+            std::string                                node_prefix;
+            osg::Vec4                                  color;
+        };
+        std::unordered_map<ContRepeatGeomKey, ContRepeatGeomAccum, ContRepeatGeomKeyHash> cont_repeat_geom_accum;
+
+        auto add_markings_for_expanded = [&](const roadmanager::RMExpandedObject& exp, bool skip_cylinders)
+        {
+            auto dit = def_map.find(exp.sourceObjectId);
+            if (dit == def_map.end() || dit->second == nullptr)
+            {
+                return;
+            }
+            const roadmanager::RMObjectDefinition* def = dit->second;
+            if (def->markings.empty())
+            {
+                return;
+            }
+
+            const bool use_outline_edges = exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT;
+            const bool use_continuous_segment_sides =
+                exp.kind == roadmanager::RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT && exp.has_world_corners;
+            const bool use_continuous_segment_outline_refs = use_continuous_segment_sides && !def->outlines.empty();
+            if (skip_cylinders && exp.radius.has_value() && !use_outline_edges)
+            {
+                return;
+            }
+
+            roadmanager::Outline*                   outline     = nullptr;
+            const roadmanager::RMOutlineDefinition* outline_def = nullptr;
+            if (use_outline_edges)
+            {
+                outline = BuildExpandedOutlineFromDefinition(*def, exp, exp.outlineIndex, road->GetId());
+                if (exp.outlineIndex >= 0 && exp.outlineIndex < static_cast<int>(def->outlines.size()))
+                {
+                    outline_def = &def->outlines[exp.outlineIndex];
+                }
+            }
+            else if (use_continuous_segment_outline_refs)
+            {
+                outline_def = &def->outlines[0];
+            }
+
+            for (size_t mi = 0; mi < def->markings.size(); ++mi)
+            {
+                const auto&     marking = def->markings[mi];
+                const osg::Vec4 color   = ResolveMarkingColor(marking, osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+                const double    zofs    = marking.zOffset.value_or(0.0);
+
+                // For non-outline bounding-box objects, side/edgeRef markings are handled as
+                // ordered edge polylines so connected edges share a mitered corner.
+                if (!use_outline_edges && !use_continuous_segment_sides && marking.cornerReferences.empty() &&
+                    (!marking.sides.empty() || !marking.edgeReferences.empty()))
+                {
+                    auto same_optional_double = [](const std::optional<double>& a, const std::optional<double>& b) -> bool
+                    {
+                        if (a.has_value() != b.has_value())
+                        {
+                            return false;
+                        }
+                        if (!a.has_value())
+                        {
+                            return true;
+                        }
+                        return std::fabs(a.value() - b.value()) < SMALL_NUMBER;
+                    };
+
+                    auto same_color = [](const osg::Vec4& a, const osg::Vec4& b) -> bool
+                    {
+                        return std::fabs(a.r() - b.r()) < SMALL_NUMBER && std::fabs(a.g() - b.g()) < SMALL_NUMBER &&
+                               std::fabs(a.b() - b.b()) < SMALL_NUMBER && std::fabs(a.a() - b.a()) < SMALL_NUMBER;
+                    };
+
+                    auto markings_are_chain_compatible = [&](const roadmanager::RMObjectMarkingDefinition& a,
+                                                             const roadmanager::RMObjectMarkingDefinition& b,
+                                                             const osg::Vec4&                              a_color,
+                                                             const osg::Vec4&                              b_color) -> bool
+                    {
+                        return same_color(a_color, b_color) && same_optional_double(a.width, b.width) &&
+                               same_optional_double(a.lineLength, b.lineLength) && same_optional_double(a.spaceLength, b.spaceLength) &&
+                               same_optional_double(a.length, b.length) && same_optional_double(a.startOffset, b.startOffset) &&
+                               same_optional_double(a.stopOffset, b.stopOffset) && same_optional_double(a.zOffset, b.zOffset) &&
+                               a.placementMode == b.placementMode;
+                    };
+
+                    const double w = exp.width.has_value() ? std::max(0.05, exp.width.value()) : 1.0;
+                    const double l = exp.length.has_value() ? std::max(0.05, exp.length.value()) : 1.0;
+
+                    pos.SetTrackPosMode(road->GetId(),
+                                        exp.s,
+                                        exp.t,
+                                        roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                            roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                    auto local_to_world = [&](double lx, double ly) -> osg::Vec3d
+                    {
+                        double rx = 0.0;
+                        double ry = 0.0;
+                        RotateVec2D(lx, ly, pos.GetH() + exp.hdg, rx, ry);
+                        return osg::Vec3d(pos.GetX() - origin[0] + rx,
+                                          pos.GetY() - origin[1] + ry,
+                                          pos.GetZ() + exp.zOffset + zofs + ROADMARK_Z_OFFSET);
+                    };
+
+                    // Corner order: 0=front-right, 1=front-left, 2=rear-left, 3=rear-right
+                    const std::array<osg::Vec3d, 4> box_corners = {
+                        local_to_world(0.5 * l, -0.5 * w),
+                        local_to_world(0.5 * l, 0.5 * w),
+                        local_to_world(-0.5 * l, 0.5 * w),
+                        local_to_world(-0.5 * l, -0.5 * w),
+                    };
+
+                    auto build_box_polyline_for_edge = [&](int edge_idx) -> std::vector<osg::Vec3d>
+                    {
+                        if (edge_idx == 0)
+                        {
+                            return {box_corners[0], box_corners[1]};
+                        }
+                        if (edge_idx == 1)
+                        {
+                            return {box_corners[1], box_corners[2]};
+                        }
+                        if (edge_idx == 2)
+                        {
+                            return {box_corners[2], box_corners[3]};
+                        }
+                        if (edge_idx == 3)
+                        {
+                            return {box_corners[3], box_corners[0]};
+                        }
+                        return {};
+                    };
+
+                    auto emit_box_chain = [&](const std::vector<osg::Vec3d>& pts)
+                    {
+                        if (pts.size() < 2)
+                        {
+                            return;
+                        }
+                        osg::ref_ptr<osg::Group> mg = this->CreateObjectMarkingsGeomFromPolyline(pts, marking, color, false);
+                        if (mg == nullptr)
+                        {
+                            return;
+                        }
+                        SetNodeName(*mg, prefix_road_object, exp.sourceObjectId, "expanded_marking");
+                        osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                        lod->addChild(mg);
+                        lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES));
+                        parent->addChild(lod);
+                    };
+
+                    auto dist2_xy = [](const osg::Vec3d& a, const osg::Vec3d& b) -> double
+                    {
+                        const double dx = a.x() - b.x();
+                        const double dy = a.y() - b.y();
+                        return dx * dx + dy * dy;
+                    };
+
+                    auto reverse_points = [](const std::vector<osg::Vec3d>& in) -> std::vector<osg::Vec3d>
+                    { return std::vector<osg::Vec3d>(in.rbegin(), in.rend()); };
+
+                    auto append_if_connected = [&](std::vector<osg::Vec3d>& chain, const std::vector<osg::Vec3d>& next_pts) -> bool
+                    {
+                        if (chain.empty() || next_pts.size() < 2)
+                        {
+                            return false;
+                        }
+
+                        const double eps2 = SMALL_NUMBER * SMALL_NUMBER;
+                        if (dist2_xy(chain.back(), next_pts.front()) <= eps2)
+                        {
+                            chain.insert(chain.end(), next_pts.begin() + 1, next_pts.end());
+                            return true;
+                        }
+                        if (dist2_xy(chain.back(), next_pts.back()) <= eps2)
+                        {
+                            for (auto it = next_pts.rbegin() + 1; it != next_pts.rend(); ++it)
+                            {
+                                chain.push_back(*it);
+                            }
+                            return true;
+                        }
+                        return false;
+                    };
+
+                    auto is_opposite_edge_pair = [](int a, int b) -> bool
+                    {
+                        const bool front_rear = (a == 0 && b == 2) || (a == 2 && b == 0);
+                        const bool left_right = (a == 1 && b == 3) || (a == 3 && b == 1);
+                        return front_rear || left_right;
+                    };
+
+                    auto side_to_edge_index = [](roadmanager::RMObjectMarkingDefinition::Side side) -> int
+                    {
+                        using Side = roadmanager::RMObjectMarkingDefinition::Side;
+                        if (side == Side::FRONT)
+                        {
+                            return 0;
+                        }
+                        if (side == Side::LEFT)
+                        {
+                            return 1;
+                        }
+                        if (side == Side::REAR)
+                        {
+                            return 2;
+                        }
+                        if (side == Side::RIGHT)
+                        {
+                            return 3;
+                        }
+                        return -1;
+                    };
+
+                    std::vector<int>                              ordered_edges;
+                    const roadmanager::RMObjectMarkingDefinition* chain_marking = &marking;
+                    const osg::Vec4                               chain_color   = color;
+
+                    for (size_t mj = mi; mj < def->markings.size(); ++mj)
+                    {
+                        const auto&     m2       = def->markings[mj];
+                        const osg::Vec4 m2_color = ResolveMarkingColor(m2, osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+                        // Chain only consecutive compatible side/edge-only markings.
+                        if (m2.cornerReferences.size() >= 2 || (m2.sides.empty() && m2.edgeReferences.empty()) ||
+                            !markings_are_chain_compatible(*chain_marking, m2, chain_color, m2_color))
+                        {
+                            break;
+                        }
+
+                        if (!m2.sides.empty())
+                        {
+                            for (const auto& side : m2.sides)
+                            {
+                                const int ei = side_to_edge_index(side);
+                                if (ei >= 0)
+                                {
+                                    ordered_edges.push_back(ei);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            for (int ref : m2.edgeReferences)
+                            {
+                                for (int ei = 0; ei < 4; ++ei)
+                                {
+                                    if (EdgeReferenceMatches(ref, static_cast<size_t>(ei), 4))
+                                    {
+                                        ordered_edges.push_back(ei);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Consume the marking entry; the outer loop continues at the first non-merged one.
+                        mi = mj;
+                    }
+
+                    std::vector<osg::Vec3d> active_chain;
+                    int                     prev_edge = -1;
+                    for (int edge_idx : ordered_edges)
+                    {
+                        if (!active_chain.empty() && prev_edge >= 0 && is_opposite_edge_pair(prev_edge, edge_idx))
+                        {
+                            emit_box_chain(active_chain);
+                            active_chain.clear();
+                        }
+
+                        std::vector<osg::Vec3d> pts = build_box_polyline_for_edge(edge_idx);
+                        if (pts.size() < 2)
+                        {
+                            prev_edge = edge_idx;
+                            continue;
+                        }
+
+                        if (active_chain.empty())
+                        {
+                            active_chain = pts;
+                            prev_edge    = edge_idx;
+                            continue;
+                        }
+
+                        if (!append_if_connected(active_chain, pts))
+                        {
+                            const std::vector<osg::Vec3d> pts_rev = reverse_points(pts);
+                            if (!append_if_connected(active_chain, pts_rev))
+                            {
+                                emit_box_chain(active_chain);
+                                active_chain = pts;
+                            }
+                        }
+                        prev_edge = edge_idx;
+                    }
+
+                    if (!active_chain.empty())
+                    {
+                        emit_box_chain(active_chain);
+                    }
+                    continue;
+                }
+
+                // For continuous repeat segments with side/edgeRef markings, accumulate corner data
+                // so we can stitch all segments into one polyline per side after the main loop.
+                if (use_continuous_segment_sides && marking.cornerReferences.empty() && (!marking.sides.empty() || !marking.edgeReferences.empty()) &&
+                    exp.segmentIndex >= 0)
+                {
+                    pos.SetTrackPosMode(road->GetId(),
+                                        exp.s,
+                                        0.0,
+                                        roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                            roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+                    const double seg_z0 = pos.GetZ() + exp.zOffset + zofs + ROADMARK_Z_OFFSET;
+
+                    pos.SetTrackPosMode(road->GetId(),
+                                        exp.sEnd,
+                                        0.0,
+                                        roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                            roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+                    const double seg_z1 = pos.GetZ() + exp.zOffsetEnd + zofs + ROADMARK_Z_OFFSET;
+
+                    const std::array<osg::Vec3d, 4> seg_c = {
+                        osg::Vec3d(exp.world_corners[0].x - origin[0], exp.world_corners[0].y - origin[1], seg_z0),
+                        osg::Vec3d(exp.world_corners[1].x - origin[0], exp.world_corners[1].y - origin[1], seg_z0),
+                        osg::Vec3d(exp.world_corners[2].x - origin[0], exp.world_corners[2].y - origin[1], seg_z1),
+                        osg::Vec3d(exp.world_corners[3].x - origin[0], exp.world_corners[3].y - origin[1], seg_z1),
+                    };
+
+                    const ContRepeatSideMarkKey accum_key{make_repeat_key(exp.sourceObjectId, exp.repeatIndex), mi};
+                    ContRepeatSideMarkAccum&    accum_entry = cont_side_mark_accum[accum_key];
+                    if (accum_entry.marking_def == nullptr)
+                    {
+                        accum_entry.marking_def      = &marking;
+                        accum_entry.color            = color;
+                        accum_entry.source_object_id = exp.sourceObjectId;
+                    }
+                    accum_entry.seg_corners.emplace_back(exp.segmentIndex, seg_c);
+                    continue;  // deferred: rendered after the main loop as a stitched polyline
+                }
+
+                osg::ref_ptr<osg::Group> marking_group;
+                if ((use_outline_edges || use_continuous_segment_outline_refs) && marking.cornerReferences.size() >= 2)
+                {
+                    std::vector<osg::Vec3d> points =
+                        use_outline_edges ? build_outline_marking_corner_points(outline, outline_def, marking, zofs) : std::vector<osg::Vec3d>{};
+                    if (use_continuous_segment_outline_refs)
+                    {
+                        std::vector<MarkingEdge> edges = build_continuous_segment_marking_edges(exp, outline_def, marking, zofs);
+                        points.reserve(edges.size() + 1);
+                        if (!edges.empty())
+                        {
+                            points.push_back(edges.front().a);
+                            for (const auto& e : edges)
+                            {
+                                points.push_back(e.b);
+                            }
+                        }
+                    }
+
+                    const bool closed_loop = points.size() >= 3 && std::fabs(points.front().x() - points.back().x()) < SMALL_NUMBER &&
+                                             std::fabs(points.front().y() - points.back().y()) < SMALL_NUMBER;
+                    marking_group = this->CreateObjectMarkingsGeomFromPolyline(points, marking, color, closed_loop);
+                }
+                else
+                {
+                    std::vector<MarkingEdge> edges = use_outline_edges ? build_outline_marking_edges(outline, outline_def, marking, zofs)
+                                                     : use_continuous_segment_outline_refs
+                                                         ? build_continuous_segment_marking_edges(exp, outline_def, marking, zofs)
+                                                         : build_box_marking_edges(exp, marking, zofs);
+                    marking_group                  = this->CreateObjectMarkingsGeom(edges, marking, color);
+                }
+                if (marking_group != nullptr)
+                {
+                    SetNodeName(*marking_group, prefix_road_object, exp.sourceObjectId, "expanded_marking");
+                    osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                    lod->addChild(marking_group);
+                    lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES));
+                    parent->addChild(lod);
+                }
+            }
+
+            if (outline != nullptr)
+            {
+                delete outline;
+            }
+        };
+
+        std::unordered_set<id_t> expanded_source_ids;
+        expanded_source_ids.reserve(expanded.size());
+        for (const auto& exp : expanded)
+        {
+            expanded_source_ids.insert(exp.sourceObjectId);
+        }
+
+        for (const auto& exp : expanded)
+        {
+            const std::string& node_prefix = get_object_node_prefix(exp.sourceObjectId);
+            osg::Vec4          color(0.8f, 0.8f, 0.8f, 1.0f);
+            auto               cit = color_map.find(exp.sourceObjectId);
+            if (cit != color_map.end())
+            {
+                color = cit->second;
+            }
+
+            bool has_object_markings = false;
+            auto dit_markings        = def_map.find(exp.sourceObjectId);
+            if (dit_markings != def_map.end() && dit_markings->second != nullptr)
+            {
+                has_object_markings = !dit_markings->second->markings.empty();
+            }
+
+            const double height = exp.height.has_value() ? std::max(0.05, exp.height.value()) : 1.0;
+
+            if (exp.kind != roadmanager::RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT)
+            {
+                ExpandedRoadObjectModel& model = get_model_for_source(exp.sourceObjectId);
+                if (model.tx != nullptr)
+                {
+                    // Outline expansion emits one entry per outline; when a model exists we only want one visual per anchor.
+                    if (exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT && exp.outlineIndex > 0)
+                    {
+                        continue;
+                    }
+
+                    pos.SetTrackPosMode(road->GetId(),
+                                        exp.s,
+                                        exp.t,
+                                        roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                            roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                    osg::ref_ptr<osg::PositionAttitudeTransform> clone =
+                        dynamic_cast<osg::PositionAttitudeTransform*>(model.tx->clone(osg::CopyOp::DEEP_COPY_ALL));
+                    if (clone != nullptr)
+                    {
+                        const double scale_x = (model.dim_x > SMALL_NUMBER && exp.length.has_value() && exp.length.value() > SMALL_NUMBER)
+                                                   ? exp.length.value() / model.dim_x
+                                                   : 1.0;
+                        const double scale_y = (model.dim_y > SMALL_NUMBER && exp.width.has_value() && exp.width.value() > SMALL_NUMBER)
+                                                   ? exp.width.value() / model.dim_y
+                                                   : 1.0;
+                        const double scale_z = (model.dim_z > SMALL_NUMBER && exp.height.has_value() && exp.height.value() > SMALL_NUMBER)
+                                                   ? exp.height.value() / model.dim_z
+                                                   : 1.0;
+                        const double lod_x   = model.dim_x * scale_x;
+                        const double lod_y   = model.dim_y * scale_y;
+
+                        clone->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+                        clone->setScale(osg::Vec3(static_cast<float>(scale_x), static_cast<float>(scale_y), static_cast<float>(scale_z)));
+                        clone->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
+                                                     static_cast<float>(pos.GetY() - origin[1]),
+                                                     static_cast<float>(pos.GetZ() + exp.zOffset)));
+                        osg::Quat quatRoad(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH() + exp.hdg, osg::Z_AXIS);
+                        clone->setAttitude(quatRoad);
+                        clone->setDataVariance(osg::Object::STATIC);
+                        SetNodeName(*clone, node_prefix, exp.sourceObjectId, "expanded_model");
+
+                        osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                        lod->addChild(clone);
+                        lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(lod_x, lod_y)));
+                        parent->addChild(lod);
+                        add_markings_for_expanded(exp, false);
+                        continue;
+                    }
+                }
+            }
+
+            if (has_object_markings)
+            {
+                // If markings are defined for this object definition, suppress primitive fill geometry
+                // and render only the markings for this expanded instance.
+                add_markings_for_expanded(exp, true);
+                continue;
+            }
+
+            if (exp.kind == roadmanager::RMExpandedObject::Kind::CONTINUOUS_REPEAT_SEGMENT && exp.has_world_corners)
+            {
+                const ContRepeatGeomKey key{make_repeat_key(exp.sourceObjectId, exp.repeatIndex)};
+                ContRepeatGeomAccum&    accum = cont_repeat_geom_accum[key];
+                if (accum.segments.empty())
+                {
+                    accum.source_object_id = exp.sourceObjectId;
+                    accum.node_prefix      = node_prefix;
+                    accum.color            = color;
+                }
+                accum.segments.push_back(exp);
+            }
+            else if (exp.kind == roadmanager::RMExpandedObject::Kind::OUTLINE_OBJECT)
+            {
+                auto dit = def_map.find(exp.sourceObjectId);
+                if (dit != def_map.end())
+                {
+                    roadmanager::Outline* outline = BuildExpandedOutlineFromDefinition(*dit->second, exp, exp.outlineIndex, road->GetId());
+                    if (outline != nullptr)
+                    {
+                        osg::ref_ptr<osg::Group> ol_group = CreateOutlineObject(outline, color, origin);
+                        delete outline;
+
+                        if (ol_group != nullptr)
+                        {
+                            SetNodeName(*ol_group, node_prefix, exp.sourceObjectId, "expanded_outline_" + std::to_string(exp.outlineIndex));
+
+                            osg::ComputeBoundsVisitor cbv;
+                            ol_group->accept(cbv);
+                            const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+                            osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                            lod->addChild(ol_group);
+                            lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(bb.xMax() - bb.xMin(), bb.yMax() - bb.yMin())));
+                            parent->addChild(lod);
+                            add_markings_for_expanded(exp, false);
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback for legacy-only objects when no object definition is available.
+                    auto oit = object_map.find(exp.sourceObjectId);
+                    if (oit != object_map.end())
+                    {
+                        roadmanager::RMObject* src_obj    = oit->second;
+                        const unsigned int     n_outlines = src_obj->GetNumberOfOutlines();
+                        const unsigned int     oi         = static_cast<unsigned int>(exp.outlineIndex);
+                        if (oi < n_outlines)
+                        {
+                            roadmanager::Outline*    outline  = src_obj->GetOutline(oi);
+                            osg::ref_ptr<osg::Group> ol_group = CreateOutlineObject(outline, color, origin);
+                            if (ol_group != nullptr)
+                            {
+                                SetNodeName(*ol_group, node_prefix, exp.sourceObjectId, "expanded_outline_" + std::to_string(exp.outlineIndex));
+
+                                osg::ComputeBoundsVisitor cbv;
+                                ol_group->accept(cbv);
+                                const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+                                osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                                lod->addChild(ol_group);
+                                lod->setRange(0,
+                                              0.0f,
+                                              static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(bb.xMax() - bb.xMin(), bb.yMax() - bb.yMin())));
+                                parent->addChild(lod);
+                                add_markings_for_expanded(exp, false);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Single anchor or discrete repeat: render as cylinder if radius present, otherwise bounding-box.
+                pos.SetTrackPosMode(road->GetId(),
+                                    exp.s,
+                                    exp.t,
+                                    roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                        roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                osg::ref_ptr<osg::PositionAttitudeTransform> tx = new osg::PositionAttitudeTransform;
+                osg::ref_ptr<osg::ShapeDrawable>             shape;
+
+                if (exp.radius.has_value())
+                {
+                    // Circular object: render as cylinder
+                    osg::ref_ptr<osg::TessellationHints> th = new osg::TessellationHints();
+                    th->setDetailRatio(0.5f);
+                    const float radius = static_cast<float>(std::max(0.05, exp.radius.value()));
+                    shape              = new osg::ShapeDrawable(
+                        new osg::Cylinder(osg::Vec3(0.0f, 0.0f, 0.5f * static_cast<float>(height)), radius, static_cast<float>(height)),
+                        th);
+                    SetNodeName(*tx, node_prefix, exp.sourceObjectId, "expanded_cylinder");
+                }
+                else
+                {
+                    // Angular object: render as box
+                    const double w = exp.width.has_value() ? std::max(0.05, exp.width.value()) : 1.0;
+                    const double l = exp.length.has_value() ? std::max(0.05, exp.length.value()) : 1.0;
+                    shape          = new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0f, 0.0f, 0.5f * static_cast<float>(height)),
+                                                                static_cast<float>(l),
+                                                                static_cast<float>(w),
+                                                                static_cast<float>(height)));
+                    SetNodeName(*tx, node_prefix, exp.sourceObjectId, "expanded_bb");
+                }
+
+                shape->setColor(color);
+                tx->addChild(shape);
+                tx->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
+                                          static_cast<float>(pos.GetY() - origin[1]),
+                                          static_cast<float>(pos.GetZ() + exp.zOffset)));
+                osg::Quat quatRoad(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH() + exp.hdg, osg::Z_AXIS);
+                tx->setAttitude(quatRoad);
+                tx->setDataVariance(osg::Object::STATIC);
+
+                osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                lod->addChild(tx);
+                lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES));
+                parent->addChild(lod);
+                add_markings_for_expanded(exp, true);
+            }
+        }
+
+        // Flush accumulated continuous-repeat solid geometry as one connected mesh per repeat.
+        // This enables smoothing over the full wall/top/bottom surfaces instead of per-segment.
+        for (auto& [gk, gacc] : cont_repeat_geom_accum)
+        {
+            if (gacc.segments.empty())
+            {
+                continue;
+            }
+
+            std::sort(gacc.segments.begin(),
+                      gacc.segments.end(),
+                      [](const roadmanager::RMExpandedObject& a, const roadmanager::RMExpandedObject& b) { return a.segmentIndex < b.segmentIndex; });
+
+            std::vector<osg::Vec3> right_bottom;
+            std::vector<osg::Vec3> right_top;
+            std::vector<osg::Vec3> left_bottom;
+            std::vector<osg::Vec3> left_top;
+            right_bottom.reserve(gacc.segments.size() + 1);
+            right_top.reserve(gacc.segments.size() + 1);
+            left_bottom.reserve(gacc.segments.size() + 1);
+            left_top.reserve(gacc.segments.size() + 1);
+
+            bool emit_start_cap = true;
+            bool emit_end_cap   = true;
+
+            for (size_t si = 0; si < gacc.segments.size(); ++si)
+            {
+                const roadmanager::RMExpandedObject& seg = gacc.segments[si];
+
+                // Base Z at segment start and end (centerline t=0), then apply per-segment z offsets.
+                pos.SetTrackPosMode(road->GetId(),
+                                    seg.s,
+                                    0.0,
+                                    roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                        roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+                const float b0 = static_cast<float>(pos.GetZ() + seg.zOffset);
+
+                pos.SetTrackPosMode(road->GetId(),
+                                    seg.sEnd,
+                                    0.0,
+                                    roadmanager::Position::PosMode::Z_REL | roadmanager::Position::PosMode::H_REL |
+                                        roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+                const float b1 = static_cast<float>(pos.GetZ() + seg.zOffsetEnd);
+
+                const float t0 = b0 + static_cast<float>(seg.height.has_value() ? std::max(0.05, seg.height.value()) : 1.0);
+                const float t1 =
+                    b1 + static_cast<float>(seg.heightEnd.has_value() ? std::max(0.05, seg.heightEnd.value())
+                                                                      : (seg.height.has_value() ? std::max(0.05, seg.height.value()) : 1.0));
+
+                const osg::Vec3 c0(static_cast<float>(seg.world_corners[0].x - origin[0]),
+                                   static_cast<float>(seg.world_corners[0].y - origin[1]),
+                                   b0);
+                const osg::Vec3 c1(static_cast<float>(seg.world_corners[1].x - origin[0]),
+                                   static_cast<float>(seg.world_corners[1].y - origin[1]),
+                                   b0);
+                const osg::Vec3 c2(static_cast<float>(seg.world_corners[2].x - origin[0]),
+                                   static_cast<float>(seg.world_corners[2].y - origin[1]),
+                                   b1);
+                const osg::Vec3 c3(static_cast<float>(seg.world_corners[3].x - origin[0]),
+                                   static_cast<float>(seg.world_corners[3].y - origin[1]),
+                                   b1);
+
+                const osg::Vec3 c0t(c0.x(), c0.y(), t0);
+                const osg::Vec3 c1t(c1.x(), c1.y(), t0);
+                const osg::Vec3 c2t(c2.x(), c2.y(), t1);
+                const osg::Vec3 c3t(c3.x(), c3.y(), t1);
+
+                if (si == 0)
+                {
+                    right_bottom.push_back(c0);
+                    right_top.push_back(c0t);
+                    left_bottom.push_back(c1);
+                    left_top.push_back(c1t);
+
+                    if (seg.segmentIndex >= 0)
+                    {
+                        auto itf = first_segment_index_by_repeat.find(gk.repeat_key);
+                        if (itf != first_segment_index_by_repeat.end())
+                        {
+                            emit_start_cap = (seg.segmentIndex == itf->second);
+                        }
+                    }
+                }
+
+                right_bottom.push_back(c3);
+                right_top.push_back(c3t);
+                left_bottom.push_back(c2);
+                left_top.push_back(c2t);
+
+                if (si + 1 == gacc.segments.size() && seg.segmentIndex >= 0)
+                {
+                    auto itl = last_segment_index_by_repeat.find(gk.repeat_key);
+                    if (itl != last_segment_index_by_repeat.end())
+                    {
+                        emit_end_cap = (seg.segmentIndex == itl->second);
+                    }
+                }
+            }
+
+            if (right_bottom.size() < 2 || left_bottom.size() < 2)
+            {
+                continue;
+            }
+
+            osg::ref_ptr<osg::Vec4Array> color_arr = new osg::Vec4Array(1);
+            (*color_arr)[0]                        = gacc.color;
+
+            auto make_geom_from_strip = [&](const std::vector<osg::Vec3>& a, const std::vector<osg::Vec3>& b) -> osg::ref_ptr<osg::Geometry>
+            {
+                if (a.size() != b.size() || a.size() < 2)
+                {
+                    return nullptr;
+                }
+
+                osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+                verts->reserve(2 * a.size());
+                for (size_t i = 0; i < a.size(); ++i)
+                {
+                    verts->push_back(a[i]);
+                    verts->push_back(b[i]);
+                }
+
+                osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                geom->setVertexArray(verts);
+                geom->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<GLsizei>(verts->size())));
+                geom->setColorArray(color_arr);
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                osgUtil::SmoothingVisitor::smooth(*geom, 0.5);
+                geom->setDataVariance(osg::Object::STATIC);
+                geom->setUseDisplayList(true);
+                return geom;
+            };
+
+            auto make_geom_from_quad =
+                [&](const osg::Vec3& p0, const osg::Vec3& p1, const osg::Vec3& p2, const osg::Vec3& p3) -> osg::ref_ptr<osg::Geometry>
+            {
+                osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array(4);
+                (*verts)[0]                        = p0;
+                (*verts)[1]                        = p1;
+                (*verts)[2]                        = p2;
+                (*verts)[3]                        = p3;
+
+                osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                geom->setVertexArray(verts);
+                geom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+                geom->setColorArray(color_arr);
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                osgUtil::SmoothingVisitor::smooth(*geom, 0.5);
+                geom->setDataVariance(osg::Object::STATIC);
+                geom->setUseDisplayList(true);
+                return geom;
+            };
+
+            // Flip strip pair ordering to keep all surfaces CCW when viewed from the outside.
+            osg::ref_ptr<osg::Geometry> geom_right  = make_geom_from_strip(right_top, right_bottom);
+            osg::ref_ptr<osg::Geometry> geom_left   = make_geom_from_strip(left_bottom, left_top);
+            osg::ref_ptr<osg::Geometry> geom_top    = make_geom_from_strip(left_top, right_top);
+            osg::ref_ptr<osg::Geometry> geom_bottom = make_geom_from_strip(right_bottom, left_bottom);
+
+            osg::ref_ptr<osg::Geometry> geom_start_cap;
+            osg::ref_ptr<osg::Geometry> geom_end_cap;
+            if (emit_start_cap)
+            {
+                // Reverse winding of start cap.
+                geom_start_cap = make_geom_from_quad(left_bottom.front(), right_bottom.front(), right_top.front(), left_top.front());
+            }
+            if (emit_end_cap)
+            {
+                // Reverse winding of end cap.
+                geom_end_cap = make_geom_from_quad(right_bottom.back(), left_bottom.back(), left_top.back(), right_top.back());
+            }
+
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            if (geom_right != nullptr)
+            {
+                geode->addDrawable(geom_right);
+            }
+            if (geom_left != nullptr)
+            {
+                geode->addDrawable(geom_left);
+            }
+            if (geom_top != nullptr)
+            {
+                geode->addDrawable(geom_top);
+            }
+            if (geom_bottom != nullptr)
+            {
+                geode->addDrawable(geom_bottom);
+            }
+            if (geom_start_cap != nullptr)
+            {
+                geode->addDrawable(geom_start_cap);
+            }
+            if (geom_end_cap != nullptr)
+            {
+                geode->addDrawable(geom_end_cap);
+            }
+
+            osg::ref_ptr<osg::Material> mat = new osg::Material;
+            mat->setDiffuse(osg::Material::FRONT_AND_BACK, gacc.color);
+            mat->setAmbient(osg::Material::FRONT_AND_BACK, gacc.color);
+            geode->getOrCreateStateSet()->setAttributeAndModes(mat.get());
+            geode->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+
+            osg::ref_ptr<osg::Group> repeat_group = new osg::Group;
+            repeat_group->addChild(geode);
+            SetNodeName(*repeat_group, gacc.node_prefix, gacc.source_object_id, "expanded_repeat");
+
+            osg::ComputeBoundsVisitor cbv;
+            repeat_group->accept(cbv);
+            const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+            osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+            lod->addChild(repeat_group);
+            lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(bb.xMax() - bb.xMin(), bb.yMax() - bb.yMin())));
+            parent->addChild(lod);
+        }
+
+        // Flush accumulated continuous-repeat side/edgeRef markings as stitched polylines.
+        // Each entry covers one (repeat, marking) pair; corners are sorted by segment index
+        // and chained into per-side polylines so mitered joints and dash phase are preserved.
+        for (auto& [accum_key, accum_entry] : cont_side_mark_accum)
+        {
+            if (accum_entry.seg_corners.empty() || accum_entry.marking_def == nullptr)
+            {
+                continue;
+            }
+
+            std::sort(accum_entry.seg_corners.begin(), accum_entry.seg_corners.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+            const roadmanager::RMObjectMarkingDefinition& m    = *accum_entry.marking_def;
+            const osg::Vec4&                              mc   = accum_entry.color;
+            const auto&                                   segs = accum_entry.seg_corners;
+
+            auto emit_stitched = [&](const std::vector<osg::Vec3d>& pts)
+            {
+                if (pts.size() < 2)
+                {
+                    return;
+                }
+                osg::ref_ptr<osg::Group> mg = this->CreateObjectMarkingsGeomFromPolyline(pts, m, mc, false);
+                if (mg == nullptr)
+                {
+                    return;
+                }
+                SetNodeName(*mg, prefix_road_object, accum_entry.source_object_id, "expanded_marking");
+                osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                lod->addChild(mg);
+                lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES));
+                parent->addChild(lod);
+            };
+
+            // Build the polyline for a given quad-edge index:
+            //   edge 0 (FRONT)  — first segment's c0→c1  (transverse start cap)
+            //   edge 1 (LEFT)   — c1→c2 chained forward across all segments
+            //   edge 2 (REAR)   — last  segment's c2→c3 (transverse end cap)
+            //   edge 3 (RIGHT)  — c0→c3 chained forward across all segments (canonical forward direction)
+            auto build_polyline_for_edge = [&](int edge_idx) -> std::vector<osg::Vec3d>
+            {
+                std::vector<osg::Vec3d> pts;
+                if (edge_idx == 1)  // LEFT: start-left → end-left per segment
+                {
+                    for (size_t i = 0; i < segs.size(); ++i)
+                    {
+                        if (i == 0)
+                        {
+                            pts.push_back(segs[i].second[1]);
+                        }
+                        pts.push_back(segs[i].second[2]);
+                    }
+                }
+                else if (edge_idx == 3)  // RIGHT: start-right → end-right per segment (forward direction)
+                {
+                    for (size_t i = 0; i < segs.size(); ++i)
+                    {
+                        if (i == 0)
+                        {
+                            pts.push_back(segs[i].second[0]);
+                        }
+                        pts.push_back(segs[i].second[3]);
+                    }
+                }
+                else if (edge_idx == 0 && !segs.empty())  // FRONT: first segment's start edge
+                {
+                    pts = {segs.front().second[0], segs.front().second[1]};
+                }
+                else if (edge_idx == 2 && !segs.empty())  // REAR: last segment's end edge
+                {
+                    pts = {segs.back().second[2], segs.back().second[3]};
+                }
+                return pts;
+            };
+
+            // Emit ordered side chains.
+            // Consecutive non-opposite sides are stitched into one continuous polyline
+            // (e.g. left + front), while opposite consecutive sides split into separate
+            // markings (e.g. left + right).
+            auto side_to_edge_index = [](roadmanager::RMObjectMarkingDefinition::Side side) -> int
+            {
+                using Side = roadmanager::RMObjectMarkingDefinition::Side;
+                if (side == Side::FRONT)
+                {
+                    return 2;
+                }
+                if (side == Side::LEFT)
+                {
+                    return 1;
+                }
+                if (side == Side::REAR)
+                {
+                    return 0;
+                }
+                if (side == Side::RIGHT)
+                {
+                    return 3;
+                }
+                return -1;
+            };
+
+            auto is_opposite_edge_pair = [](int a, int b) -> bool
+            {
+                const bool front_rear = (a == 0 && b == 2) || (a == 2 && b == 0);
+                const bool left_right = (a == 1 && b == 3) || (a == 3 && b == 1);
+                return front_rear || left_right;
+            };
+
+            auto dist2_xy = [](const osg::Vec3d& a, const osg::Vec3d& b) -> double
+            {
+                const double dx = a.x() - b.x();
+                const double dy = a.y() - b.y();
+                return dx * dx + dy * dy;
+            };
+
+            auto reverse_points = [](const std::vector<osg::Vec3d>& in) -> std::vector<osg::Vec3d>
+            {
+                std::vector<osg::Vec3d> out(in.rbegin(), in.rend());
+                return out;
+            };
+
+            auto append_if_connected = [&](std::vector<osg::Vec3d>& chain, const std::vector<osg::Vec3d>& next_pts) -> bool
+            {
+                if (chain.empty() || next_pts.size() < 2)
+                {
+                    return false;
+                }
+
+                const double eps2 = SMALL_NUMBER * SMALL_NUMBER;
+                if (dist2_xy(chain.back(), next_pts.front()) <= eps2)
+                {
+                    chain.insert(chain.end(), next_pts.begin() + 1, next_pts.end());
+                    return true;
+                }
+
+                if (dist2_xy(chain.back(), next_pts.back()) <= eps2)
+                {
+                    for (auto it = next_pts.rbegin() + 1; it != next_pts.rend(); ++it)
+                    {
+                        chain.push_back(*it);
+                    }
+                    return true;
+                }
+
+                return false;
+            };
+
+            if (!m.sides.empty())
+            {
+                std::vector<int> side_edges;
+                side_edges.reserve(m.sides.size());
+                for (const auto& side : m.sides)
+                {
+                    const int ei = side_to_edge_index(side);
+                    if (ei >= 0)
+                    {
+                        side_edges.push_back(ei);
+                    }
+                }
+
+                std::vector<osg::Vec3d> active_chain;
+                int                     prev_edge = -1;
+
+                for (size_t i = 0; i < side_edges.size(); ++i)
+                {
+                    const int edge_idx = side_edges[i];
+
+                    // Split chains when consecutive sides are opposite.
+                    if (!active_chain.empty() && prev_edge >= 0 && is_opposite_edge_pair(prev_edge, edge_idx))
+                    {
+                        emit_stitched(active_chain);
+                        active_chain.clear();
+                    }
+
+                    std::vector<osg::Vec3d> pts = build_polyline_for_edge(edge_idx);
+                    if (pts.size() < 2)
+                    {
+                        prev_edge = edge_idx;
+                        continue;
+                    }
+
+                    if (active_chain.empty())
+                    {
+                        // If there is a next non-opposite side, choose orientation for the first
+                        // segment that best prepares a contiguous join to that next side.
+                        if (i + 1 < side_edges.size() && !is_opposite_edge_pair(edge_idx, side_edges[i + 1]))
+                        {
+                            const std::vector<osg::Vec3d> next_pts = build_polyline_for_edge(side_edges[i + 1]);
+                            if (next_pts.size() >= 2)
+                            {
+                                const std::vector<osg::Vec3d> pts_rev = reverse_points(pts);
+                                const double fwd_best = std::min(dist2_xy(pts.back(), next_pts.front()), dist2_xy(pts.back(), next_pts.back()));
+                                const double rev_best =
+                                    std::min(dist2_xy(pts_rev.back(), next_pts.front()), dist2_xy(pts_rev.back(), next_pts.back()));
+                                if (rev_best + SMALL_NUMBER < fwd_best)
+                                {
+                                    pts = pts_rev;
+                                }
+                            }
+                        }
+
+                        active_chain = pts;
+                        prev_edge    = edge_idx;
+                        continue;
+                    }
+
+                    if (!append_if_connected(active_chain, pts))
+                    {
+                        // Try explicit reversal once before splitting.
+                        const std::vector<osg::Vec3d> pts_rev = reverse_points(pts);
+                        if (!append_if_connected(active_chain, pts_rev))
+                        {
+                            emit_stitched(active_chain);
+                            active_chain = pts;
+                        }
+                    }
+
+                    prev_edge = edge_idx;
+                }
+
+                if (!active_chain.empty())
+                {
+                    emit_stitched(active_chain);
+                }
+            }
+
+            // Emit one polyline per edge reference
+            for (size_t k = 0; k < 4; ++k)
+            {
+                if (std::any_of(m.edgeReferences.begin(),
+                                m.edgeReferences.end(),
+                                [k](int ref) { return EdgeReferenceMatches(ref, static_cast<size_t>(k), 4); }))
+                {
+                    emit_stitched(build_polyline_for_edge(static_cast<int>(k)));
+                }
+            }
+        }
+
+        // Compatibility fallback: render legacy objects that have no expanded-definition representation,
+        // e.g. tunnel wall/roof components generated from <tunnel> elements.
+        for (unsigned int o = 0; o < road->GetNumberOfObjects(); ++o)
+        {
+            roadmanager::RMObject* object = road->GetRoadObject(o);
+            if (object == nullptr)
+            {
+                continue;
+            }
+            if (expanded_source_ids.find(object->GetId()) != expanded_source_ids.end())
+            {
+                // Warn if a tunnel component collides with an object ID (which suggests a true ID collision issue)
+                if (object->GetTunnelComponentType() != roadmanager::RMObject::TunnelComponentType::NO_TUNNEL)
+                {
+                    LOG_WARN("Road {} tunnel component id {} already exists in expanded definitions. "
+                             "Check your scenario for duplicate IDs between <tunnel> and <object> elements.",
+                             road->GetId(),
+                             object->GetId());
+                }
+                continue;
+            }
+
+            std::string obj_type = prefix_road_object;
+            switch (object->GetTunnelComponentType())
+            {
+                case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
+                    obj_type = prefix_tunnel_wall;
+                    break;
+                case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
+                    obj_type = prefix_tunnel_roof;
+                    break;
+                default:
+                    break;
+            }
+
+            osg::Vec4 color;
+            for (unsigned int c = 0; c < 4; ++c)
+            {
+                color[c] = object->GetColor()[c];
+            }
+
+            osg::ref_ptr<osg::PositionAttitudeTransform> tx = nullptr;
+            std::string located_file_path = LocateRoadObjectModelFile(object->GetName(), odrManager_->GetOpenDriveFilename(), exe_path);
+            if (!located_file_path.empty())
+            {
+                tx = LoadRoadFeature(road, located_file_path);
+                if (tx != nullptr)
+                {
+                    object->SetModel3DFullPath(located_file_path);
+                }
+            }
+
+            if (tx == nullptr && object->GetNumberOfOutlines() > 0)
+            {
+                for (unsigned int oi = 0; oi < object->GetNumberOfOutlines(); ++oi)
+                {
+                    roadmanager::Outline*    outline  = object->GetOutline(oi);
+                    osg::ref_ptr<osg::Group> ol_group = CreateOutlineObject(outline, color, origin);
+                    if (ol_group != nullptr)
+                    {
+                        SetNodeName(*ol_group, obj_type, object->GetId(), object->GetName() + "_legacy_" + std::to_string(oi));
+
+                        osg::ComputeBoundsVisitor cbv;
+                        ol_group->accept(cbv);
+                        const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+                        osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                        lod->addChild(ol_group);
+                        lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(bb.xMax() - bb.xMin(), bb.yMax() - bb.yMin())));
+                        parent->addChild(lod);
+                    }
+                }
+                continue;
+            }
+
+            if (tx == nullptr)
+            {
+                tx = new osg::PositionAttitudeTransform;
+                osg::ref_ptr<osg::ShapeDrawable> shape =
+                    new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0f, 0.0f, 0.5f * MAX(0.05f, static_cast<float>(object->GetHeight()))),
+                                                        MAX(0.05f, static_cast<float>(object->GetLength())),
+                                                        MAX(0.05f, static_cast<float>(object->GetWidth())),
+                                                        MAX(0.05f, static_cast<float>(object->GetHeight()))));
+                shape->setColor(color);
+                tx->addChild(shape);
+            }
+
+            SetNodeName(*tx, obj_type, object->GetId(), object->GetName() + "_legacy");
+            tx->setPosition(osg::Vec3(static_cast<float>(object->GetX() - origin[0]),
+                                      static_cast<float>(object->GetY() - origin[1]),
+                                      static_cast<float>(object->GetZ() + object->GetZOffset())));
+            osg::Quat quatRoad(object->GetRoll(), osg::X_AXIS, object->GetPitch(), osg::Y_AXIS, object->GetH() + object->GetHOffset(), osg::Z_AXIS);
+            tx->setAttitude(quatRoad);
+            tx->setDataVariance(osg::Object::STATIC);
+
+            osg::ComputeBoundsVisitor cbv;
+            tx->accept(cbv);
+            const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+            osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+            lod->addChild(tx);
+            lod->setRange(0, 0.0f, static_cast<float>(LOD_DIST_ROAD_FEATURES + MAX(bb.xMax() - bb.xMin(), bb.yMax() - bb.yMin())));
+            parent->addChild(lod);
+        }
     }
 
     int RoadGeom::AddGroundSurface()
