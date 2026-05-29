@@ -3143,6 +3143,9 @@ void LightStateAction::SetVehicleLightState(Object::VehicleLightStatus* vehicleL
 
 void LightStateAction::Start(double simTime)
 {
+    // Make sure transition flag is reset, in case we have maximumExecutionCount > 1
+    transitioned_ = false;
+
     SetVehicleLights(GetVehicleLightType());
     if (vehicleLights_.front().vehicleLight_->type == Object::VehicleLightType::UNDEFINED)
     {
@@ -3524,6 +3527,11 @@ void LightStateAction::SetRgbFromTypeEnum(const Object::VehicleLightType& type, 
 
 void LightStateAction::SetVehicleLights(const Object::VehicleLightType& type)
 {
+    if (!vehicleLights_.empty())
+    {
+        vehicleLights_.clear();
+    }
+
     if (type == Object::VehicleLightType::FOG_LIGHTS)
     {
         object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type)].mode = actionVehicleLightStatus_.mode;  // Save mode
