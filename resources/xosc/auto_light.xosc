@@ -1,0 +1,164 @@
+<?xml version='1.0' encoding='utf-8'?>
+<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xsi:noNamespaceSchemaLocation="OpenScenario.xsd">
+   <FileHeader description="simplified external controller" author="esmini team" revMajor="1"
+      revMinor="3" date="2026-01-29T12:00:00" />
+   <ParameterDeclarations />
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../../../../resources/xosc/Vehicles" />
+      </VehicleCatalog>
+      <MiscObjectCatalog>
+         <Directory path="../../../../resources/xosc/Catalogs/Vehicles" />
+      </MiscObjectCatalog>
+      <ManeuverCatalog>
+         <Directory path="../../../../resources/xosc/Catalogs/Maneuvers" />
+      </ManeuverCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/straight_500m.xodr" />
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <CatalogReference catalogName="VehicleCatalog" entryName="car_white" />
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0.0" s="10.0">
+                        </LanePosition>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="MyStory">
+         <Act name="MyAct">
+            <ManeuverGroup maximumExecutionCount="1000" name="MyManeuverGroup">
+                <Actors
+                  selectTriggeringEntities="true">
+                  <EntityRef entityRef="Ego" />
+               </Actors>
+               <CatalogReference
+                  catalogName="LightStateManeuvers" entryName="LightsOnWhenDriving">
+                  <ParameterAssignments>
+                     <ParameterAssignment parameterRef="EntityName" value="Ego" />
+                  </ParameterAssignments>
+               </CatalogReference>
+               <Maneuver
+                  name="MyManeuver">
+                  <Event name="AccelerateEvent" priority="override">
+                     <Action name="Accelerate">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsDimension="rate"
+                                    dynamicsShape="linear" value="5" />
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="10" />
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition conditionEdge="rising" delay="0" name="DriveStartTrigger">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition rule="greaterOrEqual" value="2" />
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="BrakeEvent" priority="override" maximumExecutionCount="2">
+                     <Action name="Brake">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsDimension="rate"
+                                    dynamicsShape="linear" value="5" />
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0" />
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition conditionEdge="rising" delay="2" name="Brake1Trigger">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="all">
+                                    <EntityRef entityRef="Ego" />
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <SpeedCondition rule="greaterOrEqual" value="9.95"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                        <ConditionGroup>
+                           <Condition conditionEdge="rising" delay="2" name="Brake2Trigger">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="all">
+                                    <EntityRef entityRef="Ego" />
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <SpeedCondition rule="lessOrEqual" value="-4.95"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="ReverseEvent" priority="override">
+                     <Action name="Reverse">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsDimension="rate"
+                                    dynamicsShape="linear" value="5" />
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="-5" />
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition conditionEdge="rising" delay="2" name="ReverseStartTrigger">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="all">
+                                    <EntityRef entityRef="Ego" />
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <SpeedCondition rule="lessThan" value="0.05"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="Quit" delay="0.0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="60.0" rule="greaterOrEqual" />
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>
