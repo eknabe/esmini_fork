@@ -90,20 +90,10 @@
             </Action>
             <StartTrigger>
                <ConditionGroup>
-                  <Condition name="LightsOffWhenStandstillCondition" delay="0" conditionEdge="none">
+                  <Condition name="LightsOffWhenStandstillCondition" delay="0" conditionEdge="rising">
                      <ByEntityCondition>
                         <EntityCondition>
-                           <SpeedCondition value="0.01" rule="lessThan" />
-                        </EntityCondition>
-                        <TriggeringEntities triggeringEntitiesRule="any">
-                           <EntityRef entityRef="$EntityName" />
-                        </TriggeringEntities>
-                     </ByEntityCondition>
-                  </Condition>
-                  <Condition name="LightsOffWhenStandstillCondition" delay="0" conditionEdge="none">
-                     <ByEntityCondition>
-                        <EntityCondition>
-                           <SpeedCondition value="-0.01" rule="greaterThan" />
+                           <StandStillCondition duration="0.0" />
                         </EntityCondition>
                         <TriggeringEntities triggeringEntitiesRule="any">
                            <EntityRef entityRef="$EntityName" />
@@ -186,10 +176,44 @@
             </Action>
             <StartTrigger>
                <ConditionGroup>
-                  <Condition name="LightsOnWhenBrakingCondition" delay="0" conditionEdge="rising">
+                  <Condition name="LightsOnWhenBrakingWhileDrivingForwardCondition1" delay="0" conditionEdge="rising">
                      <ByEntityCondition>
                         <EntityCondition>
                            <AccelerationCondition value="-0.25" rule="lessThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+                  <Condition name="LightsOnWhenBrakingWhileDrivingForwardCondition2" delay="0"
+                     conditionEdge="none">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <SpeedCondition value="0.01" rule="greaterThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+               </ConditionGroup>
+               <ConditionGroup>
+                  <Condition name="LightsOnWhenBrakingWhileReversingCondition1" delay="0" conditionEdge="rising">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <AccelerationCondition value="0.25" rule="greaterThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+                  <Condition name="LightsOnWhenBrakingWhileReversingCondition2" delay="0"
+                     conditionEdge="none">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <SpeedCondition value="-0.01" rule="lessThan" />
                         </EntityCondition>
                         <TriggeringEntities triggeringEntitiesRule="any">
                            <EntityRef entityRef="$EntityName" />
@@ -214,11 +238,46 @@
             </Action>
             <StartTrigger>
                <ConditionGroup>
-                  <Condition name="LightsOffWhenNotBrakingCondition" delay="0"
+                  <Condition name="LightsOffAfterBrakingWhenDrivingForwardCondition1" delay="0"
                      conditionEdge="rising">
                      <ByEntityCondition>
                         <EntityCondition>
                            <AccelerationCondition value="-0.05" rule="greaterThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+                  <Condition name="LightsOffAfterBrakingWhenDrivingForwardCondition2" delay="0"
+                     conditionEdge="none">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <SpeedCondition value="-0.01" rule="greaterThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+               </ConditionGroup>
+               <ConditionGroup>
+                  <Condition name="LightsOffAfterBrakingWhenReversingCondition1" delay="0"
+                     conditionEdge="rising">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <AccelerationCondition value="0.05" rule="lessThan" />
+                        </EntityCondition>
+                        <TriggeringEntities triggeringEntitiesRule="any">
+                           <EntityRef entityRef="$EntityName" />
+                        </TriggeringEntities>
+                     </ByEntityCondition>
+                  </Condition>
+                  <Condition name="LightsOffAfterBrakingWhenReversingCondition2" delay="0"
+                     conditionEdge="none">
+                     <ByEntityCondition>
+                        <EntityCondition>
+                           <SpeedCondition value="0.01" rule="lessThan" />
                         </EntityCondition>
                         <TriggeringEntities triggeringEntitiesRule="any">
                            <EntityRef entityRef="$EntityName" />

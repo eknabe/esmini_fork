@@ -3144,7 +3144,8 @@ void LightStateAction::SetVehicleLightState(Object::VehicleLightStatus* vehicleL
 void LightStateAction::Start(double simTime)
 {
     // Make sure transition flag is reset, in case we have maximumExecutionCount > 1
-    transitioned_ = false;
+    transitioned_    = false;
+    transitionTimer_ = 0.0;
 
     SetVehicleLights(GetVehicleLightType());
     if (vehicleLights_.front().vehicleLight_->type == Object::VehicleLightType::UNDEFINED)
