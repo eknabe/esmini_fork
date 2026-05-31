@@ -108,6 +108,10 @@ namespace roadgeom
                                                                                std::string              exe_path);
         osg::ref_ptr<osg::PositionAttitudeTransform> LoadRoadFeature(roadmanager::Road* road, std::string file_path);
         osg::ref_ptr<osg::Group>                     CreateOutlineObject(roadmanager::Outline* outline, osg::Vec4 color, const osg::Vec3d& origin);
+        osg::ref_ptr<osg::Group>                     CreateObjectMarkingsGeomFromPolyline(const std::vector<osg::Vec3d>&                points,
+                                                                                          const roadmanager::RMObjectMarkingDefinition& marking,
+                                                                                          const osg::Vec4&                              color,
+                                                                                          bool                                          closed_loop);
         int                                          AddGroundSurface();
         void                                         SetNodeName(osg::Node& node, const std::string& prefix, id_t id, const std::string& label);
         int                                          SaveToFile(const std::string& filename);
@@ -116,19 +120,6 @@ namespace roadgeom
         std::unordered_map<int, TrafficLightModel> traffic_light_;
 
     private:
-        osg::ref_ptr<osg::Group> CreateExpandedContinuousSegmentGeom(const std::array<roadmanager::Vec2, 4>& corners,
-                                                                     double                                  z0,
-                                                                     double                                  z1,
-                                                                     double                                  heightStart,
-                                                                     double                                  heightEnd,
-                                                                     bool                                    emitStartCap,
-                                                                     bool                                    emitEndCap,
-                                                                     osg::Vec4                               color,
-                                                                     const osg::Vec3d&                       origin);
-        osg::ref_ptr<osg::Group> CreateObjectMarkingsGeomFromPolyline(const std::vector<osg::Vec3d>&                points,
-                                                                      const roadmanager::RMObjectMarkingDefinition& marking,
-                                                                      const osg::Vec4&                              color,
-                                                                      bool                                          closed_loop);
         osg::ref_ptr<osg::Group> CreateObjectMarkingsGeom(const std::vector<MarkingEdge>&               edges,
                                                           const roadmanager::RMObjectMarkingDefinition& marking,
                                                           const osg::Vec4&                              color);

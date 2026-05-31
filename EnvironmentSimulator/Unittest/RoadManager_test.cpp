@@ -4438,7 +4438,7 @@ TEST(RoadObjectsRefactor, ParseObjectDefinitionsFromXmlString)
         <objects>
             <object id="100" name="test_obj" type="parkingSpace" s="10.0" t="1.5" zOffset="0.2" length="4.0" width="2.0" height="1.0" hdg="0.1" pitch="0.01" roll="0.02">
                 <material roadMarkColor="yellow"/>
-                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.5" tEnd="2.5" widthStart="2.0" widthEnd="2.2"/>
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.5" tEnd="2.5" widthStart="2.0" widthEnd="2.2" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.2" zOffsetEnd="0.2"/>
                 <outlines>
                     <outline id="1" closed="true">
                         <cornerRoad id="11" s="10.0" t="1.0" dz="0.0" height="0.2"/>
@@ -4597,7 +4597,7 @@ TEST(RoadObjectsRefactor, ExpandDiscreteRepeatInstances)
         </lanes>
         <objects>
             <object id="200" name="repeat_obj" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
-                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.0" tEnd="3.0"/>
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="1.0" tEnd="3.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
             </object>
         </objects>
     </road>
@@ -4637,7 +4637,7 @@ TEST(RoadObjectsRefactor, ExpandDiscreteRepeatWithOutlinesUsesOutlineObjects)
         </lanes>
         <objects>
             <object id="210" name="repeat_outline" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
-                <repeat s="10.0" length="20.0" distance="5.0" tStart="2.0" tEnd="2.0"/>
+                <repeat s="10.0" length="20.0" distance="5.0" tStart="2.0" tEnd="2.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
                 <outlines>
                     <outline id="53" closed="true">
                         <cornerRoad s="11.0" t="2.0" dz="0.0" height="1.0"/>
@@ -4689,7 +4689,7 @@ TEST(RoadObjectsRefactor, RepeatExpansionUnaffectedByModelLikeNames)
         </lanes>
         <objects>
             <object id="240" name="cone-45" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
-                <repeat s="10.0" length="8.0" distance="4.0" tStart="0.0" tEnd="0.0"/>
+                <repeat s="10.0" length="8.0" distance="4.0" tStart="0.0" tEnd="0.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
                 <outlines>
                     <outline id="1" closed="true">
                         <cornerRoad s="10.0" t="-0.5" dz="0.0" height="1.0"/>
@@ -4700,7 +4700,7 @@ TEST(RoadObjectsRefactor, RepeatExpansionUnaffectedByModelLikeNames)
                 </outlines>
             </object>
             <object id="241" name="cone-100.osgb" type="barrier" s="0.0" t="2.0" zOffset="0.0" length="2.0" width="1.0" height="1.0">
-                <repeat s="10.0" length="8.0" distance="4.0" tStart="2.0" tEnd="2.0"/>
+                <repeat s="10.0" length="8.0" distance="4.0" tStart="2.0" tEnd="2.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
             </object>
         </objects>
     </road>
@@ -4815,7 +4815,7 @@ TEST(RoadObjectsRefactor, RadiusOverridesWidthAndLengthOnObjectAndRepeat)
         </lanes>
         <objects>
             <object id="230" name="radius_override" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="9.0" width="7.0" height="1.0" radius="1.5">
-                <repeat s="10.0" length="10.0" distance="10.0" widthStart="11.0" widthEnd="13.0" lengthStart="12.0" lengthEnd="14.0" radiusStart="1.0" radiusEnd="2.0"/>
+                <repeat s="10.0" length="10.0" distance="10.0" widthStart="11.0" widthEnd="13.0" lengthStart="12.0" lengthEnd="14.0" radiusStart="1.0" radiusEnd="2.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
             </object>
         </objects>
     </road>
@@ -4861,7 +4861,7 @@ TEST(RoadObjectsRefactor, ExpandContinuousRepeatSegments)
         </lanes>
         <objects>
             <object id="201" name="continuous_obj" type="barrier" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="1.0" height="1.0">
-                <repeat s="20.0" length="20.0" distance="0.0" tStart="-1.0" tEnd="1.0"/>
+                <repeat s="20.0" length="20.0" distance="0.0" tStart="-1.0" tEnd="1.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
             </object>
         </objects>
     </road>
@@ -4997,7 +4997,7 @@ TEST(RoadObjectsRefactor, RepeatedCornerRoadOutlineInstancesSpanCurvedRoad)
         </lanes>
         <objects>
             <object id="501" name="curved_repeat_outline" type="barrier" s="6.0" t="0.0" zOffset="0.0" length="4.0" width="2.0" height="1.0">
-                <repeat s="10.0" length="40.0" distance="10.0" tStart="1.0" tEnd="1.0"/>
+                <repeat s="10.0" length="40.0" distance="10.0" tStart="1.0" tEnd="1.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
                 <outlines>
                     <outline id="91" closed="true">
                         <cornerRoad id="11" s="6.0" t="-1.0" dz="0.0" height="0.1"/>
@@ -5061,7 +5061,7 @@ TEST(RoadObjectsRefactor, MixedCornerRoadAndCornerLocalDiscreteRepeatExpandsPerO
         </lanes>
         <objects>
             <object id="502" name="mixed_outline_repeat" type="parkingSpace" s="8.0" t="0.0" zOffset="0.0" length="4.0" width="2.0" height="1.0">
-                <repeat s="10.0" length="10.0" distance="5.0" tStart="2.0" tEnd="2.0"/>
+                <repeat s="10.0" length="10.0" distance="5.0" tStart="2.0" tEnd="2.0" heightStart="1.0" heightEnd="1.0" zOffsetStart="0.0" zOffsetEnd="0.0"/>
                 <outlines>
                     <outline id="101" closed="true">
                         <cornerRoad id="11" s="8.0" t="-1.0" dz="0.0" height="0.2"/>
@@ -5131,7 +5131,7 @@ TEST(RoadObjectsRefactor, ContinuousRepeatPreservesMarkingReferencesAndWorldCorn
         </lanes>
         <objects>
             <object id="503" name="continuous_refs" type="parkingSpace" s="0.0" t="0.0" zOffset="0.0" length="4.0" width="2.5" height="0.2">
-                <repeat s="10.0" length="20.0" distance="0.0" tStart="1.5" tEnd="2.0"/>
+                <repeat s="10.0" length="20.0" distance="0.0" tStart="1.5" tEnd="2.0" heightStart="0.2" heightEnd="0.2" zOffsetStart="0.0" zOffsetEnd="0.0"/>
                 <outlines>
                     <outline id="103" closed="true">
                         <cornerRoad id="11" s="10.0" t="1.0" dz="0.0" height="0.0"/>
@@ -5199,6 +5199,17 @@ TEST(RoadObjectsRefactor, ContinuousRepeatPreservesMarkingReferencesAndWorldCorn
 
 namespace
 {
+    osg::ref_ptr<osg::Group> CreateObjectMarkingsGeomFromPolylineForTest(const std::vector<osg::Vec3d>   &points,
+                                                                         const RMObjectMarkingDefinition &marking,
+                                                                         const osg::Vec4                 &color,
+                                                                         bool                             closed_loop)
+    {
+        OpenDrive                odr;
+        osg::ref_ptr<osg::Group> environment = new osg::Group;
+        roadgeom::RoadGeom       road_geom(&odr, environment.get(), osg::Vec3d(0.0, 0.0, 0.0), false, false, "", false);
+        return road_geom.CreateObjectMarkingsGeomFromPolyline(points, marking, color, closed_loop);
+    }
+
     std::vector<std::array<osg::Vec3d, 4>> CollectQuadsFromMarkingGroup(osg::Group *group)
     {
         std::vector<std::array<osg::Vec3d, 4>> quads;
@@ -5309,7 +5320,7 @@ TEST(RoadObjectsRefactorViewer, FullEdgeMarkingsCreateExpectedCornerJoin)
     // spaceLength == 0 means continuous; this should still stitch adjacent full segments.
     marking.spaceLength = 0.0;
 
-    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    osg::ref_ptr<osg::Group> group = CreateObjectMarkingsGeomFromPolylineForTest(points, marking, osg::Vec4(1, 1, 1, 1), false);
     ASSERT_TRUE(group.valid());
 
     std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
@@ -5331,7 +5342,7 @@ TEST(RoadObjectsRefactorViewer, PartialEdgeMarkingsAvoidUnintendedCornerJoin)
     marking.stopOffset  = 0.4;
     marking.spaceLength = 0.0;
 
-    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    osg::ref_ptr<osg::Group> group = CreateObjectMarkingsGeomFromPolylineForTest(points, marking, osg::Vec4(1, 1, 1, 1), false);
     ASSERT_TRUE(group.valid());
 
     std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
@@ -5352,7 +5363,7 @@ TEST(RoadObjectsRefactorViewer, SpaceLengthZeroProducesContinuousSegmentCoverage
     marking.lineLength  = 0.5;
     marking.spaceLength = 0.0;
 
-    osg::ref_ptr<osg::Group> group = roadgeom::CreateObjectMarkingsGeomFromPolyline(points, marking, osg::Vec4(1, 1, 1, 1), false);
+    osg::ref_ptr<osg::Group> group = CreateObjectMarkingsGeomFromPolylineForTest(points, marking, osg::Vec4(1, 1, 1, 1), false);
     ASSERT_TRUE(group.valid());
 
     std::vector<std::array<osg::Vec3d, 4>> quads = CollectQuadsFromMarkingGroup(group.get());
