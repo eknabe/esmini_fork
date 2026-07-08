@@ -118,6 +118,27 @@
                 <Property name="steeringSpeedInertia"  value="$SteeringSpeedInertia" />
             </Properties>
         </Controller>
+        <Controller name="followRoad">
+            <ParameterDeclarations>
+                <!-- scale lookahead distance for speed control -->
+                <ParameterDeclaration name="LookaheadSpeedDistFactor" parameterType="double" value="1.0" />
+                <!-- scale lookahead distance for steering control -->
+                <ParameterDeclaration name="LookaheadSteerDistFactor" parameterType="double" value="1.0" />
+                <!-- acceleration applied for increasing or decreasing speed -->
+                <ParameterDeclaration name="Acceleration" parameterType="double" value="2.0" />
+                <!-- activate/deactivate speed control -->
+                <ParameterDeclaration name="ActivateSpeedControl" parameterType="boolean" value="true" />
+                <!-- activate/deactivate steer control -->
+                <ParameterDeclaration name="ActivateSteerControl" parameterType="boolean" value="true" />
+            </ParameterDeclarations>
+            <Properties>
+                <Property name="esminiController" value="FollowRoadController" />
+                <Property name="lookaheadSpeedDistFactor"  value="$LookaheadSpeedDistFactor" />
+                <Property name="acceleration"  value="$Acceleration" />
+                <Property name="activateSpeedControl"  value="$ActivateSpeedControl" />
+                <Property name="activateSteerControl"  value="$ActivateSteerControl" />
+            </Properties>
+        </Controller>
         <Controller name="followRoute">
             <ParameterDeclarations>
                 <ParameterDeclaration name="MinDistForCollision" parameterType="double" value="10" />

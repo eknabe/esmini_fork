@@ -290,7 +290,7 @@ static int GetRoadInfoAtDistance(int          object_id,
         CopyRoadInfo(r_data, &s_data);
 
         // Visualize forward looking road sensor probe
-        main_object->SetSensorPosition(s_data.road_lane_info.pos[0], s_data.road_lane_info.pos[1], s_data.road_lane_info.pos[2]);
+        main_object->SetSensorPosition(0, s_data.road_lane_info.pos[0], s_data.road_lane_info.pos[1], s_data.road_lane_info.pos[2]);
         player->SteeringSensorSetVisible(object_id, true);
     }
 
