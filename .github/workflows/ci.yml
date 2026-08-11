@@ -349,11 +349,11 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Create source archives
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
         shell: bash
         run: |
           tar --exclude-vcs -czf esmini-fullsrc.tar.gz .
-          zip -r esmini-fullsrc.zip . -x '*.git*'
+          zip -r esmini-fullsrc.zip . -x '*.git*' -x 'esmini-fullsrc.tar.gz'
 
       - name: Release
         uses: softprops/action-gh-release@v3
