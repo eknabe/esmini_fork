@@ -349,7 +349,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Create source archives
-        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           tar --exclude-vcs -czf esmini-fullsrc.tar.gz .
