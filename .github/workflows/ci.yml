@@ -342,8 +342,8 @@ jobs:
             echo "esmini-bin_${{ runner.os }}.zip"
             echo "esmini-demo_${{ runner.os }}.zip"
             if [ "${RUNNER_OS}" = "Linux" ]; then
-              echo 'esmini-fullsrc.tar.gz'
-              echo 'esmini-fullsrc.zip'
+              echo '/tmp/esmini-fullsrc.tar.gz'
+              echo '/tmp/esmini-fullsrc.zip'
             fi
             echo EOF
           } >> $GITHUB_OUTPUT
@@ -352,8 +352,8 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          tar --exclude-vcs -czf esmini-fullsrc.tar.gz .
-          zip -r esmini-fullsrc.zip . -x '*.git*' -x 'esmini-fullsrc.tar.gz'
+          tar --exclude-vcs -czf /tmp/esmini-fullsrc.tar.gz .
+          zip -r /tmp/esmini-fullsrc.zip . -x '*.git*'
 
       - name: Release
         uses: softprops/action-gh-release@v3
