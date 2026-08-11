@@ -139,6 +139,39 @@ jobs:
       - name: CMake Build
         run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
 
+      - name: Create source archives before generators and test runs
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          SRC_ITEMS=(*.yml *.txt *.md .github EnvironmentSimulator externals/dirent/win externals/expr externals/fmi2 externals/fmt externals/pugixml externals/yaml resources scripts support test docs Hello-World_coding-example run OSMP_FMU)
+          GIT_EXCLUDES=('.git' '.git/*' '*/.git' '*/.git/*')
+          EXCLUDE_DIRS=('OSMP_FMU/build' 'resources/models')
+          TAR_EXCLUDES=()
+          ZIP_EXCLUDES=("${GIT_EXCLUDES[@]}")
+
+          # Add exact .git exclusions to tar as --exclude=<pattern> flags.
+          for pattern in "${GIT_EXCLUDES[@]}"; do
+            TAR_EXCLUDES+=("--exclude=${pattern}")
+          done
+
+          # Expand directory excludes for tar and zip from one shared list.
+          for dir in "${EXCLUDE_DIRS[@]}"; do
+            TAR_EXCLUDES+=("--exclude=${dir}")
+            ZIP_EXCLUDES+=("${dir}" "${dir}/*" "${dir}/**")
+          done
+
+          tar "${TAR_EXCLUDES[@]}" -czf /tmp/esmini-fullsrc.tar.gz "${SRC_ITEMS[@]}"
+          zip -r /tmp/esmini-fullsrc.zip "${SRC_ITEMS[@]}" -x "${ZIP_EXCLUDES[@]}"
+
+      - name: Upload source archives artifact
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: esmini-fullsrc
+          path: |
+            /tmp/esmini-fullsrc.tar.gz
+            /tmp/esmini-fullsrc.zip
+
       - name: Compile minimal C example
         if: runner.os == 'Linux'
         run: |
@@ -329,15 +362,34 @@ jobs:
         with:
           name: esmini-demo_${{ runner.os }}
 
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'Linux'
+        with:
+          name: esmini-fullsrc
+          path: /tmp
+
       - name: Determine version from tag
         shell: bash
         run: echo "ESMINI_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - id: release_files
+        name: Determine release files
+        shell: bash
+        run: |
+          {
+            echo 'files<<EOF'
+            echo "esmini-bin_${{ runner.os }}.zip"
+            echo "esmini-demo_${{ runner.os }}.zip"
+            if [ "${RUNNER_OS}" = "Linux" ]; then
+              echo '/tmp/esmini-fullsrc.tar.gz'
+              echo '/tmp/esmini-fullsrc.zip'
+            fi
+            echo EOF
+          } >> $GITHUB_OUTPUT
 
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           name: 'esmini ${{ env.ESMINI_VERSION }} (build ${{ env.BUILD_NUMBER }})'
           body: 'Demo and binaries. For information about changes and new features see [release notes](https://github.com/esmini/esmini/blob/master/release_notes.md).'
-          files: |
-            esmini-bin_${{ runner.os }}.zip
-            esmini-demo_${{ runner.os }}.zip
+          files: ${{ steps.release_files.outputs.files }}
