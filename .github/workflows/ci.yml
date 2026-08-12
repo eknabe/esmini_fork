@@ -143,16 +143,19 @@ jobs:
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
         shell: bash
         run: |
-          SRC_ITEMS=(*.yml *.txt *.md .github EnvironmentSimulator externals/dirent/win externals/expr externals/fmi2 externals/fmt externals/pugixml externals/yaml resources scripts support test docs Hello-World_coding-example run OSMP_FMU)
-          EXCLUDE_ITEMS=('OSMP_FMU/build' 'resources/models' '.git')
+          REPO_NAME="$(basename "$PWD")"
+          REPO_PARENT="$(dirname "$PWD")"
+          EXCLUDE_ITEMS=(.git build OSMP_FMU/build bin code-examples-bin esmini-demo resources/models externals/googletest externals/osg externals/osi externals/sumo externals/implot)
           SEVENZ_EXCLUDES=()
 
           # Expand 7z recursive excludes from one shared list.
           for item in "${EXCLUDE_ITEMS[@]}"; do
-            SEVENZ_EXCLUDES+=("-xr!${item}")
+            SEVENZ_EXCLUDES+=("-xr!${REPO_NAME}/${item}")
           done
 
-          7z a /tmp/esmini-fullsrc.zip "${SRC_ITEMS[@]}" "${SEVENZ_EXCLUDES[@]}"
+          pushd "${REPO_PARENT}" >/dev/null
+          7z a /tmp/esmini-fullsrc.zip "${REPO_NAME}" "${SEVENZ_EXCLUDES[@]}"
+          popd >/dev/null
 
       - name: Upload source archives artifact
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
