@@ -144,14 +144,24 @@ jobs:
         shell: bash
         run: |
           SRC_ITEMS=(*.yml *.txt *.md .github EnvironmentSimulator externals/dirent/win externals/expr externals/fmi2 externals/fmt externals/pugixml externals/yaml resources scripts support test docs Hello-World_coding-example run OSMP_FMU)
-          GIT_EXCLUDES=(.git .git/* '*/.git' '*/.git/*')
-          CONTENT_EXCLUDES=(OSMP_FMU/build OSMP_FMU/build/* OSMP_FMU/build/** resources/models resources/models/* resources/models/**)
+          GIT_EXCLUDES=('.git' '.git/*' '*/.git' '*/.git/*')
+          EXCLUDE_DIRS=('OSMP_FMU/build' 'resources/models')
           TAR_EXCLUDES=()
-          for pattern in "${GIT_EXCLUDES[@]}" "${CONTENT_EXCLUDES[@]}"; do
+          ZIP_EXCLUDES=("${GIT_EXCLUDES[@]}")
+
+          # Add exact .git exclusions to tar as --exclude=<pattern> flags.
+          for pattern in "${GIT_EXCLUDES[@]}"; do
             TAR_EXCLUDES+=("--exclude=${pattern}")
           done
+
+          # Expand directory excludes for tar and zip from one shared list.
+          for dir in "${EXCLUDE_DIRS[@]}"; do
+            TAR_EXCLUDES+=("--exclude=${dir}")
+            ZIP_EXCLUDES+=("${dir}" "${dir}/*" "${dir}/**")
+          done
+
           tar "${TAR_EXCLUDES[@]}" -czf /tmp/esmini-fullsrc.tar.gz "${SRC_ITEMS[@]}"
-          zip -r /tmp/esmini-fullsrc.zip "${SRC_ITEMS[@]}" -x "${GIT_EXCLUDES[@]}" "${CONTENT_EXCLUDES[@]}"
+          zip -r /tmp/esmini-fullsrc.zip "${SRC_ITEMS[@]}" -x "${ZIP_EXCLUDES[@]}"
 
       - name: Upload source archives artifact
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
