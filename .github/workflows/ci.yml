@@ -147,6 +147,15 @@ jobs:
           tar --exclude-vcs --exclude='OSMP_FMU/build' --exclude='resources/models' -czf /tmp/esmini-fullsrc.tar.gz "${SRC_ITEMS[@]}"
           zip -r /tmp/esmini-fullsrc.zip "${SRC_ITEMS[@]}" -x '*.git*' 'OSMP_FMU/build/*' 'OSMP_FMU/build/**' 'resources/models/*' 'resources/models/**'
 
+      - name: Upload source archives artifact
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: esmini-fullsrc
+          path: |
+            /tmp/esmini-fullsrc.tar.gz
+            /tmp/esmini-fullsrc.zip
+
       - name: Compile minimal C example
         if: runner.os == 'Linux'
         run: |
@@ -336,6 +345,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: esmini-demo_${{ runner.os }}
+
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'Linux'
+        with:
+          name: esmini-fullsrc
+          path: /tmp
 
       - name: Determine version from tag
         shell: bash
