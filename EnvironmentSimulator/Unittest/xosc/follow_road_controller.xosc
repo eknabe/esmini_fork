@@ -21,7 +21,8 @@
                <ParameterAssignments>
                   <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="1.0" />
                   <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="Acceleration" value="2.0" />
+                  <ParameterAssignment parameterRef="SpeedFactor" value="1.0" />
+                  <ParameterAssignment parameterRef="Acceleration" value="1.0" />
                   <ParameterAssignment parameterRef="ActivateSpeedControl" value="true" />
                   <ParameterAssignment parameterRef="ActivateSteerControl" value="true" />
                </ParameterAssignments>

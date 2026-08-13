@@ -369,7 +369,7 @@ void Object::SetAngularAcc(double h_acc, double p_acc, double r_acc)
 
 idx_t Object::AddCustomSensor(const float (&color)[3], const double (&pos)[3], double radius)
 {
-    idx_t index = custom_sensor_.size();
+    idx_t index = static_cast<idx_t>(custom_sensor_.size());
     custom_sensor_.push_back({color[0], color[1], color[2], pos[0], pos[1], pos[2], radius});
     return index;
 }
