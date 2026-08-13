@@ -60,13 +60,13 @@ namespace scenarioengine
         vehicle::Vehicle vehicle_;
         double           set_speed_                   = 0.0;
         double           current_speed_               = 0.0;
-        bool             setSpeedSet_                 = false;
+        double           speed_change_factor_         = 1.0;
+        double           steer_factor_                = 1.0;
         double           lookahead_speed_dist_factor_ = 1.0;
         double           lookahead_steer_dist_factor_ = 1.0;
         idx_t            sensor_idx_                  = IDX_UNDEFINED;
         double           acc_                         = 2.0;  // acceleration/deceleration for speed control
         bool             speed_ctrl_active_           = true;
-        bool             steer_ctrl_active_           = true;
     };
 
     Controller* InstantiateControllerFollowRoad(void* args);

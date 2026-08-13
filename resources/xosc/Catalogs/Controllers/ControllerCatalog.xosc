@@ -122,21 +122,25 @@
             <ParameterDeclarations>
                 <!-- scale lookahead distance for speed control -->
                 <ParameterDeclaration name="LookaheadSpeedDistFactor" parameterType="double" value="1.0" />
+                <!-- scale speed change -->
+                <ParameterDeclaration name="SpeedChangeFactor" parameterType="double" value="1.0" />
                 <!-- scale lookahead distance for steering control -->
                 <ParameterDeclaration name="LookaheadSteerDistFactor" parameterType="double" value="1.0" />
+                <!-- scale steering -->
+                <ParameterDeclaration name="SteerFactor" parameterType="double" value="1.0" />
                 <!-- acceleration applied for increasing or decreasing speed -->
                 <ParameterDeclaration name="Acceleration" parameterType="double" value="2.0" />
                 <!-- activate/deactivate speed control -->
-                <ParameterDeclaration name="ActivateSpeedControl" parameterType="boolean" value="true" />
-                <!-- activate/deactivate steer control -->
-                <ParameterDeclaration name="ActivateSteerControl" parameterType="boolean" value="true" />
+                <ParameterDeclaration name="SpeedControlActive" parameterType="boolean" value="true" />
             </ParameterDeclarations>
             <Properties>
                 <Property name="esminiController" value="FollowRoadController" />
                 <Property name="lookaheadSpeedDistFactor"  value="$LookaheadSpeedDistFactor" />
+                <Property name="speedChangeFactor"  value="$SpeedChangeFactor" />
+                <Property name="lookaheadSteerDistFactor"  value="$LookaheadSteerDistFactor" />
+                <Property name="steerFactor"  value="$SteerFactor" />
                 <Property name="acceleration"  value="$Acceleration" />
-                <Property name="activateSpeedControl"  value="$ActivateSpeedControl" />
-                <Property name="activateSteerControl"  value="$ActivateSteerControl" />
+                <Property name="speedControlActive"  value="$SpeedControlActive" />
             </Properties>
         </Controller>
         <Controller name="followRoute">

@@ -39,9 +39,19 @@ ControllerFollowRoad::ControllerFollowRoad(InitArgs* args) : Controller(args)
         lookahead_speed_dist_factor_ = strtod(args->properties->GetValueStr("lookaheadSpeedDistFactor"));
     }
 
+    if (args->properties->ValueExists("speedChangeFactor"))
+    {
+        speed_change_factor_ = strtod(args->properties->GetValueStr("speedChangeFactor"));
+    }
+
     if (args->properties->ValueExists("lookaheadSteerDistFactor"))
     {
         lookahead_steer_dist_factor_ = strtod(args->properties->GetValueStr("lookaheadSteerDistFactor"));
+    }
+
+    if (args->properties->ValueExists("steerFactor"))
+    {
+        steer_factor_ = strtod(args->properties->GetValueStr("steerFactor"));
     }
 
     if (args->properties->ValueExists("acceleration"))
@@ -51,20 +61,15 @@ ControllerFollowRoad::ControllerFollowRoad(InitArgs* args) : Controller(args)
 
     if (args->properties->ValueExists("speedControlActive"))
     {
-        speed_ctrl_active_ = strtod(args->properties->GetValueStr("speedControlActive"));
-    }
-
-    if (args->properties->ValueExists("steerControlActive"))
-    {
-        steer_ctrl_active_ = strtod(args->properties->GetValueStr("steerControlActive"));
+        speed_ctrl_active_ = args->properties->GetValueStr("speedControlActive") == "true";
     }
 
     LOG_INFO(
-        "ControllerFollowRoad: lookaheadSpeedDistFactor: {:.2f}, lookaheadSteerDistFactor: {:.2f}, speedControlActive: {}, steerControlActive: {}",
+        "ControllerFollowRoad: lookaheadSpeedDistFactor: {:.2f}, lookaheadSteerDistFactor: {:.2f}, speedControlActive: {}, speed_change_factor: {:.2f}",
         lookahead_speed_dist_factor_,
         lookahead_steer_dist_factor_,
         speed_ctrl_active_ ? "true" : "false",
-        steer_ctrl_active_ ? "true" : "false");
+        speed_change_factor_);
 }
 
 void ControllerFollowRoad::Init()
@@ -82,15 +87,19 @@ void ControllerFollowRoad::Init()
         return;
     }
 
-    sensor_idx_ =
-        object_->AddCustomSensor(SE_Color::Color2RBG(SE_Color::Color::RED), {object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ()}, 0.8);
+    if (speed_ctrl_active_)
+    {
+        sensor_idx_ = object_->AddCustomSensor(SE_Color::Color2RBG(SE_Color::Color::RED),
+                                               {object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ()},
+                                               0.5);
+    }
 
     Controller::Init();
 }
 
 void ControllerFollowRoad::Step(double timeStep)
 {
-    if (!(speed_ctrl_active_ || steer_ctrl_active_) || object_ == nullptr)
+    if (object_ == nullptr)
     {
         return;
     }
@@ -111,11 +120,11 @@ void ControllerFollowRoad::Step(double timeStep)
     if (speed_ctrl_active_)
     {
         double min_sdf    = 0.2;
-        double steer_tune = 1.0;
-        double curve_tune = 5.0;
+        double steer_tune = 0.25;
+        double curve_tune = 2.0;
 
         // lookahead for speed control
-        lookahead_speed_dist = 5.0 + lookahead_speed_dist_factor_ * 2.0 * current_speed_ + 0.05 * pow(current_speed_, 2);
+        lookahead_speed_dist = 5.0 + lookahead_speed_dist_factor_ * 2 * object_->GetSpeed() + 0.05 * pow(object_->GetSpeed(), 2);
         if (object_->pos_.GetProbeInfo(lookahead_speed_dist,
                                        &lookahead_info,
                                        roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER,
@@ -131,7 +140,9 @@ void ControllerFollowRoad::Step(double timeStep)
 
         // calculate speed based on steering angle and road curvature ahead
         slowdown_factor =
-            MIN(1.0, MAX(min_sdf, exp(-steer_tune * abs(lookahead_info.relative_h) - curve_tune * abs(lookahead_info.road_lane_info.curvature))));
+            MIN(1.0,
+                speed_change_factor_ *
+                    MAX(min_sdf, exp(-steer_tune * abs(lookahead_info.relative_h) - curve_tune * abs(lookahead_info.road_lane_info.curvature))));
         target_speed = set_speed_ * slowdown_factor;
 
         if (vehicle_.speed_ < target_speed - SMALL_NUMBER)
@@ -148,27 +159,25 @@ void ControllerFollowRoad::Step(double timeStep)
         {
             vehicle_.SetSpeed(target_speed);
         }
+
+        object_->SetSpeed(vehicle_.speed_);
+        current_speed_ = vehicle_.speed_;
     }
 
-    if (steer_ctrl_active_)
+    // steering angle based on relative heading to lookahead point
+    lookahead_steer_dist = 1 + lookahead_steer_dist_factor_ * sqrt(object_->GetSpeed());
+    if (object_->pos_.GetProbeInfo(lookahead_steer_dist, &lookahead_info, roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER, true) <
+        roadmanager::Position::ReturnCode::OK)
     {
-        // steering angle based on relative heading to lookahead point
-        lookahead_steer_dist = 2 + lookahead_steer_dist_factor_ * 1.7 * sqrt(current_speed_);
-        if (object_->pos_.GetProbeInfo(lookahead_steer_dist,
-                                       &lookahead_info,
-                                       roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER,
-                                       true) < roadmanager::Position::ReturnCode::OK)
-        {
-            LOG_WARN("Failed lookahead for steering angle");
-        }
-        else
-        {
-            // visualize lookahead point for steering
-            object_->SetLookaheadSensorPosition(lookahead_info.road_lane_info.pos[0], lookahead_info.road_lane_info.pos[1], 0.0);
-        }
-
-        vehicle_.SetWheelAngle(lookahead_info.relative_h);  // steer directly towards the lookahead point, no PID control for now
+        LOG_WARN("Failed lookahead for steering angle");
     }
+    else
+    {
+        // visualize lookahead point for steering
+        object_->SetLookaheadSensorPosition(lookahead_info.road_lane_info.pos[0], lookahead_info.road_lane_info.pos[1], 0.0);
+    }
+
+    vehicle_.SetWheelAngle(steer_factor_ * lookahead_info.relative_h);  // steer directly towards the lookahead point, no PID control for now
 
     vehicle_.Update(timeStep);
 
@@ -182,9 +191,6 @@ void ControllerFollowRoad::Step(double timeStep)
         vehicle_.speed_,
         lookahead_steer_dist,
         lookahead_info.relative_h);
-
-    current_speed_ = vehicle_.speed_;
-    object_->SetSpeed(current_speed_);
 
     // Register updated vehicle position
     object_->pos_.SetInertiaPos(vehicle_.posX_, vehicle_.posY_, vehicle_.heading_);
@@ -227,7 +233,7 @@ int ControllerFollowRoad::Activate(const ControlActivationMode (&mode)[static_ca
         vehicle_.SetMaxAcc(object_->GetMaxAcceleration());
         vehicle_.SetMaxDec(object_->GetMaxDeceleration());
         vehicle_.SetSteeringRate(10.0);
-        current_speed_ = vehicle_.speed_ = set_speed_ = object_->GetSpeed();
+        set_speed_ = current_speed_ = vehicle_.speed_ = object_->GetSpeed();
         object_->SetJunctionSelectorStrategy(roadmanager::Junction::JunctionStrategyType::SELECTOR_ANGLE);
         object_->SetJunctionSelectorAngle(0.0);
         player_->LookaheadSensorSetVisible(object_->GetId(), true);

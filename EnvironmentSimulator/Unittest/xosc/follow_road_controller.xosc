@@ -19,12 +19,12 @@
          <ObjectController>
             <CatalogReference catalogName="ControllerCatalog" entryName="followRoad">
                <ParameterAssignments>
-                  <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="1.0" />
                   <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="SpeedFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="Acceleration" value="1.0" />
-                  <ParameterAssignment parameterRef="ActivateSpeedControl" value="true" />
-                  <ParameterAssignment parameterRef="ActivateSteerControl" value="true" />
+                  <ParameterAssignment parameterRef="SteerFactor" value="2.0" />
+                  <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="0.5" />
+                  <ParameterAssignment parameterRef="SpeedChangeFactor" value="1.0" />
+                  <ParameterAssignment parameterRef="SpeedControlActive" value="false" />
+                  <ParameterAssignment parameterRef="Acceleration" value="1.5" />  <!-- comfortable acc/dec -->
                </ParameterAssignments>
             </CatalogReference>
          </ObjectController>
