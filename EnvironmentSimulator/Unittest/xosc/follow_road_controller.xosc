@@ -19,12 +19,11 @@
          <ObjectController>
             <CatalogReference catalogName="ControllerCatalog" entryName="followRoad">
                <ParameterAssignments>
-                  <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="SteerFactor" value="2.0" />
-                  <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="0.5" />
-                  <ParameterAssignment parameterRef="SpeedChangeFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="SpeedControlActive" value="false" />
-                  <ParameterAssignment parameterRef="Acceleration" value="1.5" />  <!-- comfortable acc/dec -->
+                  <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="0.7" />
+                  <ParameterAssignment parameterRef="SteerFactor" value="1.0" />
+                  <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="1.0" />
+                  <ParameterAssignment parameterRef="SpeedChangeFactor" value="1.0" />  <!-- set 0.0 to disable speed ctrl -->
+                  <ParameterAssignment parameterRef="Acceleration" value="1.5" />
                </ParameterAssignments>
             </CatalogReference>
          </ObjectController>
@@ -46,7 +45,7 @@
                      <SpeedAction>
                         <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0" />
                         <SpeedActionTarget>
-                           <AbsoluteTargetSpeed value="${50/3.6}" />
+                           <AbsoluteTargetSpeed value="${70/3.6}" />
                         </SpeedActionTarget>
                      </SpeedAction>
                   </LongitudinalAction>
