@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          lfs: false
 
       - name: Install Python and dependencies
         uses: actions/setup-python@v6
@@ -249,6 +251,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: true
+          lfs: false
 
       - uses: ./.github/actions/setup_tools_shared
 
@@ -341,6 +344,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          lfs: false
           ref: ${{ github.ref }}
 
       # Generate build number based on offset from former AppVeyor CI machine
