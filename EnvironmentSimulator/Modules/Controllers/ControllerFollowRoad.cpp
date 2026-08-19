@@ -67,13 +67,6 @@ ControllerFollowRoad::ControllerFollowRoad(InitArgs* args) : Controller(args)
 
 void ControllerFollowRoad::Init()
 {
-    // FollowRoad controller forced into override mode - will not perform any scenario actions
-    if (mode_ != ControlOperationMode::MODE_OVERRIDE)
-    {
-        LOG_INFO("FollowRoad controller mode \"{}\" not applicable. Using override mode instead.", Mode2Str(mode_));
-        mode_ = ControlOperationMode::MODE_OVERRIDE;
-    }
-
     if (object_ == nullptr)
     {
         LOG_ERROR("FollowRoad controller requires a valid object to control");
@@ -110,7 +103,7 @@ void ControllerFollowRoad::Step(double timeStep)
     double                     lookahead_steer_dist = 0.0;
     double                     acc                  = 0.0;
 
-    if (!NEAR_ZERO(speed_change_factor_))
+    if (IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LONG)) && !NEAR_ZERO(speed_change_factor_))
     {
         // lookahead for speed control
         double speed_dist_tune = 1.0;
@@ -169,6 +162,12 @@ void ControllerFollowRoad::Step(double timeStep)
 
         object_->SetSpeed(vehicle_.speed_);
         current_speed_ = vehicle_.speed_;
+        object_->dirty_.SetBits(Object::DirtyBit::LONGITUDINAL);
+    }
+    else
+    {
+        // just apply current speed
+        vehicle_.SetSpeed(object_->GetSpeed());
     }
 
     // steering angle based on relative heading to lookahead point
@@ -203,7 +202,7 @@ void ControllerFollowRoad::Step(double timeStep)
 
     // Register updated vehicle position
     object_->pos_.SetInertiaPos(vehicle_.posX_, vehicle_.posY_, vehicle_.heading_);
-    object_->dirty_.SetBits(Object::DirtyBit::LONGITUDINAL | Object::DirtyBit::LATERAL);
+    object_->dirty_.SetBits(Object::DirtyBit::LATERAL);
 
     // Fetch Z and Pitch from road position
     vehicle_.posZ_  = object_->pos_.GetZ();
