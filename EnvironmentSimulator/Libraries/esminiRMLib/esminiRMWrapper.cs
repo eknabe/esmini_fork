@@ -1,4 +1,4 @@
-/*
+﻿/*
  * esmini - Environment Simulator Minimalistic
  * https://github.com/esmini/esmini
  *
