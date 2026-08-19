@@ -103,6 +103,7 @@ jobs:
         with:
           submodules: true
           fetch-tags: true
+          lfs: ${{ github.ref_type == 'tag' }}  # Fetch LFS objects only for release builds
           fetch-depth: 0
           ref: ${{ github.ref }}
 
