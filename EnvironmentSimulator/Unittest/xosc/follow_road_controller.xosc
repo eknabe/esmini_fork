@@ -21,10 +21,10 @@
                <ParameterAssignments>
                   <ParameterAssignment parameterRef="Mode" value="override" />
                   <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="SteerFactor" value="1.0" />
+                  <ParameterAssignment parameterRef="SteerFactor" value="1.5" />
                   <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="1.0" />
-                  <ParameterAssignment parameterRef="SpeedChangeFactor" value="1.0" />  <!-- set 0.0 to disable speed ctrl -->
-                  <ParameterAssignment parameterRef="Acceleration" value="1.5" />
+                  <ParameterAssignment parameterRef="SpeedChangeFactor" value="2.0" />  <!-- set 0.0 to disable speed ctrl -->
+                  <ParameterAssignment parameterRef="Acceleration" value="2" />
                </ParameterAssignments>
             </CatalogReference>
          </ObjectController>
@@ -57,7 +57,7 @@
                <PrivateAction>
                   <RoutingAction>
                      <AssignRouteAction>
-                        <Route name="GoRoundInEight" closed="true">
+                        <Route name="EgoRoute" closed="true">
                            <Waypoint routeStrategy="shortest">
                               <Position>
                                  <LanePosition roadId="280" laneId="-1" s="90" />
