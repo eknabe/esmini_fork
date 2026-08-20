@@ -12177,12 +12177,7 @@ Position::ReturnCode Position::GetProbeInfo(double lookahead_distance, RoadProbe
 
     if (fabs(lookahead_distance) > SMALL_NUMBER)
     {
-        retval = target.MoveAlongS(lookahead_distance,
-                                   0.0,
-                                   0.0,
-                                   lookAheadMode == LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER,
-                                   Position::MoveDirectionMode::HEADING_DIRECTION,
-                                   true);
+        retval = target.MoveAlongS(lookahead_distance, 0.0, 0.0, true, Position::MoveDirectionMode::HEADING_DIRECTION, true);
     }
 
     if (lookAheadMode == LookAheadMode::LOOKAHEADMODE_AT_ROAD_CENTER)

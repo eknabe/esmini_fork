@@ -150,8 +150,8 @@ int ControllerFollowReference::Activate(const ControlActivationMode (&mode)[stat
     {
         LOG_ERROR("{} activation mode: lat {} long {}, but is only valid on both domains in combination",
                   GetName(),
-                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] == ControlActivationMode::ON ? "On" : "Off",
-                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)] == ControlActivationMode::ON ? "On" : "Off");
+                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)] == ControlActivationMode::ON ? "On" : "Off",
+                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] == ControlActivationMode::ON ? "On" : "Off");
     }
 
     if (object_)

@@ -90,21 +90,21 @@ void ControllerFollowRoad::Step(double timeStep)
         return;
     }
 
-    if (abs(object_->GetSpeed() - current_speed_) > 1e-3)
-    {
-        LOG_INFO("New setspeed: {:5.2f} -> {:5.2f}", set_speed_, object_->GetSpeed());
-        set_speed_ = object_->GetSpeed();
-    }
-
     roadmanager::RoadProbeInfo lookahead_info       = {};
     double                     lookahead_speed_dist = 5.0;
     double                     slowdown_factor      = 1.0;
-    double                     target_speed         = set_speed_;
+    double                     target_speed         = 0.0;
     double                     lookahead_steer_dist = 0.0;
     double                     acc                  = 0.0;
 
     if (IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LONG)) && !NEAR_ZERO(speed_change_factor_))
     {
+        if (abs(object_->GetSpeed() - current_speed_) > 1e-3)
+        {
+            LOG_INFO("New setspeed: {:5.2f} -> {:5.2f}", set_speed_, object_->GetSpeed());
+            set_speed_ = object_->GetSpeed();
+        }
+
         // lookahead for speed control
         double speed_dist_tune = 1.0;
         lookahead_speed_dist   = 5.0 + speed_dist_tune * lookahead_speed_dist_factor_ * object_->GetSpeed() + 0.05 * pow(object_->GetSpeed(), 2);
@@ -167,7 +167,8 @@ void ControllerFollowRoad::Step(double timeStep)
     else
     {
         // just apply current speed
-        vehicle_.SetSpeed(object_->GetSpeed());
+        target_speed = object_->GetSpeed();
+        vehicle_.SetSpeed(target_speed);
     }
 
     // steering angle based on relative heading to lookahead point
@@ -224,13 +225,7 @@ void ControllerFollowRoad::Step(double timeStep)
 
 int ControllerFollowRoad::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
-    if (mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] != mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)])
-    {
-        LOG_ERROR("{} activation mode: lat {} long {}, but FollowRoadController only valid on both domains in combination",
-                  GetName(),
-                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] == ControlActivationMode::ON ? "On" : "Off",
-                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)] == ControlActivationMode::ON ? "On" : "Off");
-    }
+    LOG_INFO("{} mode: {}", GetName(), Mode2Str(mode_));
 
     if (object_)
     {
