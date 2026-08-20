@@ -19,7 +19,8 @@
          <ObjectController>
             <CatalogReference catalogName="ControllerCatalog" entryName="followRoad">
                <ParameterAssignments>
-                  <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="0.7" />
+                  <ParameterAssignment parameterRef="Mode" value="override" />
+                  <ParameterAssignment parameterRef="LookaheadSteerDistFactor" value="1.0" />
                   <ParameterAssignment parameterRef="SteerFactor" value="1.0" />
                   <ParameterAssignment parameterRef="LookaheadSpeedDistFactor" value="1.0" />
                   <ParameterAssignment parameterRef="SpeedChangeFactor" value="1.0" />  <!-- set 0.0 to disable speed ctrl -->

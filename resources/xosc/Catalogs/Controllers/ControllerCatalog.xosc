@@ -121,7 +121,7 @@
         <Controller name="followRoad">
             <ParameterDeclarations>
                 <!-- Mode: additive for mixing with default controller, override to disable default controller -->
-                <ParameterDeclaration name="Mode" parameterType="string" value="additive" />
+                <ParameterDeclaration name="Mode" parameterType="string" value="override" />
                 <!-- scale lookahead distance for speed control -->
                 <ParameterDeclaration name="LookaheadSpeedDistFactor" parameterType="double" value="1.0" />
                 <!-- scale speed change, set to 0 to disable speed control altogether -->

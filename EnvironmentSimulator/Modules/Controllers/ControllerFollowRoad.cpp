@@ -97,7 +97,7 @@ void ControllerFollowRoad::Step(double timeStep)
     double                     lookahead_steer_dist = 0.0;
     double                     acc                  = 0.0;
 
-    if (IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LONG)) && !NEAR_ZERO(speed_change_factor_))
+    if (!NEAR_ZERO(speed_change_factor_))
     {
         if (abs(object_->GetSpeed() - current_speed_) > 1e-3)
         {
@@ -225,7 +225,13 @@ void ControllerFollowRoad::Step(double timeStep)
 
 int ControllerFollowRoad::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
-    LOG_INFO("{} mode: {}", GetName(), Mode2Str(mode_));
+    if (mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] != mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)])
+    {
+        LOG_ERROR("{} activation mode: lat {} long {}, but is only valid on both domains in combination. Expect strange result.",
+                  GetName(),
+                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)] == ControlActivationMode::ON ? "On" : "Off",
+                  mode[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] == ControlActivationMode::ON ? "On" : "Off");
+    }
 
     if (object_)
     {
