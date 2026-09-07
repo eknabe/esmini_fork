@@ -2001,6 +2001,22 @@ TEST(GroundTruthTests, osi_ground_truth_crop_multiple_objects)
     SE_Close();
 }
 
+TEST(GroundTruthTests, StationaryObjectSubtypeMapping)
+{
+    const osi3::GroundTruth* osi_gt_ptr;
+
+    ASSERT_EQ(SE_Init("../../../resources/xosc/lane_change_crest.xosc", 0, 0, 0, 0), 0);
+
+    osi_gt_ptr = reinterpret_cast<const osi3::GroundTruth*>(SE_GetOSIGroundTruthRaw());
+
+    EXPECT_EQ(osi_gt_ptr->stationary_object_size(), 10);
+
+    EXPECT_EQ(osi_gt_ptr->stationary_object(9).classification().type(),
+              osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_DELINEATOR);
+
+    SE_Close();
+}
+
 TEST(GetMiscObjFromGroundTruth, receive_miscobj)
 {
     int               sv_size = 0;

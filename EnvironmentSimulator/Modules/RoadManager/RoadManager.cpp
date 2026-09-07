@@ -2924,6 +2924,7 @@ roadmanager::RMObject::RMObject(double      s,
                                 Orientation orientation,
                                 double      z_offset,
                                 ObjectType  type,
+                                std::string subtype,
                                 double      length,
                                 double      height,
                                 double      width,
@@ -2937,6 +2938,7 @@ roadmanager::RMObject::RMObject(double      s,
     : RoadObject(x, y, z, h),
       name_(name),
       type_(type),
+      subtype_(subtype),
       id_(id),
       s_(s),
       t_(t),
@@ -5083,12 +5085,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         LOG_WARN("unknown road object orientation: {} (road ids={})", object.attribute("orientation").value(), r->GetId());
                     }
                 }
-                std::string          type_str = object.attribute("type").value();
-                RMObject::ObjectType type     = RMObject::Str2Type(type_str);
-
-                double length = object.attribute("length").as_double();
-                double width  = object.attribute("width").as_double();
-                double radius = object.attribute("radius").as_double();
+                std::string          type_str    = object.attribute("type").value();
+                RMObject::ObjectType type        = RMObject::Str2Type(type_str);
+                std::string          subtype_str = object.attribute("subtype").value();
+                double               length      = object.attribute("length").as_double();
+                double               width       = object.attribute("width").as_double();
+                double               radius      = object.attribute("radius").as_double();
 
                 if (!object.attribute("radius").empty())
                 {
@@ -5152,6 +5154,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                            orientation,
                                            z_offset,
                                            type,
+                                           subtype_str,
                                            length,
                                            height,
                                            width,
@@ -5215,6 +5218,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                        orientation,
                                        z_offset,
                                        type,
+                                       subtype_str,
                                        length,
                                        height,
                                        width,
@@ -8815,6 +8819,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                                  RoadObject::Orientation(),
                                                  0.0,
                                                  RMObject::ObjectType::BARRIER,
+                                                 "wall",
                                                  tunnel->length_,
                                                  TUNNEL_HEIGHT,
                                                  tunnel->width_,
@@ -8867,6 +8872,7 @@ void OpenDrive::CreateTunnelOSIPointsAndObjects()
                                              RoadObject::Orientation(),
                                              0.0,
                                              RMObject::ObjectType::BARRIER,
+                                             "overhead_structure",
                                              tunnel->length_,
                                              TUNNEL_HEIGHT,
                                              tunnel->width_,

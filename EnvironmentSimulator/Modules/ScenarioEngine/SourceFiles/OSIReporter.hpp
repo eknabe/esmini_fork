@@ -266,6 +266,8 @@ public:
         return osi_freq_;
     }
 
+    osi3::StationaryObject_Classification_Type GetOSIStationaryObjectTypeFromString(std::string type);
+
     osi3::MovingObject_VehicleClassification_LightState_GenericLightState GetGenericLightMode(const Object::VehicleLightMode& mode) const;
     osi3::MovingObject_VehicleClassification_LightState_IndicatorState    GetIndicatorLightMode(const Object::VehicleLightMode& mode,
                                                                                                 const Object::VehicleLightType& type) const;

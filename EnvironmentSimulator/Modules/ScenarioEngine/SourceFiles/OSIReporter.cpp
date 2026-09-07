@@ -17,6 +17,8 @@
 #include <string>
 #include <utility>
 #include <array>
+#include <algorithm>
+#include <cctype>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -782,15 +784,6 @@ int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roa
             std::string restrictions_str = fmt::format("restrictions:{}", object->GetParkingSpace().GetRestrictions());
             source_reference->add_identifier(restrictions_str);
         }
-        else if (obj_type == roadmanager::RMObject::ObjectType::OBSTACLE || obj_type == roadmanager::RMObject::ObjectType::RAILING ||
-                 obj_type == roadmanager::RMObject::ObjectType::PATCH || obj_type == roadmanager::RMObject::ObjectType::TRAFFICISLAND ||
-                 obj_type == roadmanager::RMObject::ObjectType::CROSSWALK || obj_type == roadmanager::RMObject::ObjectType::STREETLAMP ||
-                 obj_type == roadmanager::RMObject::ObjectType::GANTRY || obj_type == roadmanager::RMObject::ObjectType::SOUNDBARRIER ||
-                 obj_type == roadmanager::RMObject::ObjectType::WIND || obj_type == roadmanager::RMObject::ObjectType::ROADMARK)
-        {
-            obj_osi_internal.sobj->mutable_classification()->set_type(
-                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
-        }
         else if (obj_type == roadmanager::RMObject::ObjectType::BRIDGE)
         {
             obj_osi_internal.sobj->mutable_classification()->set_type(
@@ -799,12 +792,33 @@ int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roa
         }
         else
         {
-            obj_osi_internal.sobj->mutable_classification()->set_type(
-                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN);
+            // If not matched so far esmini will try map subtype directly to OSI type
+            osi3::StationaryObject_Classification_Type osi_type = GetOSIStationaryObjectTypeFromString(object->GetSubType());
 
-            if (obj_type != roadmanager::RMObject::ObjectType::NONE)
+            if (osi_type != osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN)
             {
-                LOG_ERROR("OSIReporter::UpdateOSIStationaryObjectODR -> Unsupported stationary object category {}", obj_type);
+                obj_osi_internal.sobj->mutable_classification()->set_type(osi_type);
+            }
+            else if (obj_type == roadmanager::RMObject::ObjectType::OBSTACLE || obj_type == roadmanager::RMObject::ObjectType::RAILING ||
+                     obj_type == roadmanager::RMObject::ObjectType::PATCH || obj_type == roadmanager::RMObject::ObjectType::TRAFFICISLAND ||
+                     obj_type == roadmanager::RMObject::ObjectType::CROSSWALK || obj_type == roadmanager::RMObject::ObjectType::STREETLAMP ||
+                     obj_type == roadmanager::RMObject::ObjectType::GANTRY || obj_type == roadmanager::RMObject::ObjectType::SOUNDBARRIER ||
+                     obj_type == roadmanager::RMObject::ObjectType::WIND || obj_type == roadmanager::RMObject::ObjectType::ROADMARK)
+            {
+                // if subtype not matched, but the object type is one of the known types, classify as TYPE_OTHER
+                obj_osi_internal.sobj->mutable_classification()->set_type(
+                    osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+            }
+            else
+            {
+                // if subtype not matched and the object type is unknown, classify as TYPE_UNKNOWN
+                obj_osi_internal.sobj->mutable_classification()->set_type(
+                    osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN);
+
+                if (obj_type != roadmanager::RMObject::ObjectType::NONE)
+                {
+                    LOG_ERROR("OSIReporter::UpdateOSIStationaryObjectODR -> Unsupported stationary object category {}", obj_type);
+                }
             }
         }
 
@@ -1594,6 +1608,27 @@ osi3::MovingObject_VehicleClassification_LightState_IndicatorState OSIReporter::
         default:
             return osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OTHER;
     }
+}
+
+osi3::StationaryObject_Classification_Type OSIReporter::GetOSIStationaryObjectTypeFromString(std::string type)
+{
+    std::string name = type;
+    std::transform(name.begin(), name.end(), name.begin(), [](char c) { return static_cast<char>(std::toupper(static_cast<unsigned char>(c))); });
+
+    if (name.rfind("TYPE_", 0) != 0)
+    {
+        name = "TYPE_" + name;
+    }
+
+    // Match against the OSI enum value names, e.g. "TYPE_BARRIER"
+    const google::protobuf::EnumValueDescriptor *value = osi3::StationaryObject_Classification_Type_descriptor()->FindValueByName(name);
+
+    if (value == nullptr)
+    {
+        return osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN;
+    }
+
+    return static_cast<osi3::StationaryObject_Classification_Type>(value->number());
 }
 
 osi3::MovingObject_VehicleClassification_LightState_GenericLightState OSIReporter::GetGenericLightMode(const Object::VehicleLightMode &mode) const

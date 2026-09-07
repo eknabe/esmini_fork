@@ -2632,6 +2632,7 @@ namespace roadmanager
                  Orientation orientation,
                  double      z_offset,
                  ObjectType  type,
+                 std::string subtype,
                  double      length,
                  double      height,
                  double      width,
@@ -2668,6 +2669,10 @@ namespace roadmanager
         ObjectType GetType() const
         {
             return type_;
+        }
+        std::string GetSubType() const
+        {
+            return subtype_;
         }
         id_t GetId() const
         {
@@ -2862,6 +2867,7 @@ namespace roadmanager
     private:
         std::string                name_;
         ObjectType                 type_;
+        std::string                subtype_;
         id_t                       id_;
         id_t                       g_id_;
         double                     s_;

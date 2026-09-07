@@ -1,5 +1,17 @@
 ## esmini release notes
 
+### Version 3.8.1 DRAFT
+
+New features:
+- Add support for road-delineator
+  - 3D model added (see [here](https://esmini.github.io/support-qa.html#_update_3d_model_pack) how to update)
+
+Improvements and fixes:
+- Extend OSI mapping of stationary object type
+  - use subtype to overcome limitations from OpenDRIVE and OSI type incompatibility
+  - see [User guide - road objects/OSI mapping](https://esmini.github.io/scenario-features.html#_osi_mapping) for more info
+- Fixed a few artifacts in bus 3D model (bus_blue.osgb)
+
 ### 2026-09-04 Version 3.8.0
 
 New features:

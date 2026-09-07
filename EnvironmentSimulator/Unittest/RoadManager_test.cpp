@@ -4730,7 +4730,7 @@ TEST(UserDataTest, CheckSomeUserDataEntries)
     Road *road = odr->GetRoadById(0);
     ASSERT_NE(road, nullptr);
 
-    EXPECT_EQ(road->GetNumberOfObjects(), 9);
+    EXPECT_EQ(road->GetNumberOfObjects(), 10);
 
     RMObject *rmobj = road->GetRoadObject(1);
     EXPECT_EQ(rmobj->GetId(), 1);
