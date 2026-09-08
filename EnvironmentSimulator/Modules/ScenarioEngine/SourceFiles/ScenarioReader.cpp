@@ -770,14 +770,14 @@ Vehicle *ScenarioReader::parseOSCVehicle(pugi::xml_node vehicleNode)
     pugi::xml_node trailer_hitch_node = vehicleNode.child("TrailerHitch");
     if (!trailer_hitch_node.empty())
     {
-        vehicle->trailer_hitch_      = std::make_shared<Vehicle::TrailerHitch>();
+        vehicle->trailer_hitch_      = new Vehicle::TrailerHitch();
         vehicle->trailer_hitch_->dx_ = strtod(parameters.ReadAttribute(trailer_hitch_node, "dx"));
     }
 
     pugi::xml_node trailer_coupler_node = vehicleNode.child("TrailerCoupler");
     if (!trailer_coupler_node.empty())
     {
-        vehicle->trailer_coupler_      = std::make_shared<Vehicle::TrailerCoupler>();
+        vehicle->trailer_coupler_      = new Vehicle::TrailerCoupler();
         vehicle->trailer_coupler_->dx_ = strtod(parameters.ReadAttribute(trailer_coupler_node, "dx"));
     }
 

@@ -1777,43 +1777,51 @@ Vehicle::Vehicle() : Object(Object::Type::VEHICLE), trailer_coupler_(nullptr), t
 Vehicle::Vehicle(const Vehicle& v) : Object(Object::Type::VEHICLE), trailer_coupler_(nullptr), trailer_hitch_(nullptr)
 {
     *this = v;
-
-    if (v.trailer_coupler_ && v.trailer_coupler_->tow_vehicle_)
-    {
-        trailer_coupler_.reset(new TrailerCoupler(*v.trailer_coupler_));
-        trailer_coupler_->tow_vehicle_ = nullptr;
-    }
-
-    if (v.trailer_hitch_ && v.trailer_hitch_->trailer_vehicle_)
-    {
-        // make a unique copy of any trailer
-        trailer_hitch_.reset(new TrailerHitch(*v.trailer_hitch_));
-        Vehicle* trailer = new Vehicle(*(static_cast<Vehicle*>((v.trailer_hitch_->trailer_vehicle_))));
-        ConnectTrailer(trailer);
-    }
 }
 
-// Vehicle& Vehicle::operator=(const Vehicle& v)
-// {
-// 	*this = v;
+Vehicle& Vehicle::operator=(const Vehicle& v)
+{
+    if (this == &v)
+    {
+        return *this;
+    }
 
-// 	if (v.trailer_coupler_ && v.trailer_coupler_->tow_vehicle_)
-// 	{
-// 		trailer_coupler_.reset(new TrailerCoupler(*v.trailer_coupler_));
-// 		trailer_coupler_->tow_vehicle_ = nullptr;
-// 	}
+    TrailerCoupler* coupler = v.trailer_coupler_ ? new TrailerCoupler(*v.trailer_coupler_) : nullptr;
+    TrailerHitch*   hitch   = v.trailer_hitch_ ? new TrailerHitch(*v.trailer_hitch_) : nullptr;
+    Vehicle*        trailer = nullptr;
 
-// 	if (v.trailer_hitch_ && v.trailer_hitch_->trailer_vehicle_)
-// 	{
-// 		// make a unique copy of any trailer
-// 		trailer_hitch_.reset(new TrailerHitch(*v.trailer_hitch_));
-// 		Vehicle* trailer = new Vehicle(*(static_cast<Vehicle*>((v.trailer_hitch_->trailer_vehicle_))));
-// 		ConnectTrailer(trailer);
-// 	}
-// }
+    if (coupler)
+    {
+        coupler->tow_vehicle_ = nullptr;
+    }
+
+    if (hitch)
+    {
+        hitch->trailer_vehicle_ = nullptr;
+        if (v.trailer_hitch_->trailer_vehicle_)
+        {
+            trailer = new Vehicle(*static_cast<Vehicle*>(v.trailer_hitch_->trailer_vehicle_));
+        }
+    }
+
+    delete trailer_coupler_;
+    delete trailer_hitch_;
+    Object::operator=(v);
+    trailer_coupler_ = coupler;
+    trailer_hitch_   = hitch;
+
+    if (trailer)
+    {
+        ConnectTrailer(trailer);
+    }
+
+    return *this;
+}
 
 Vehicle::~Vehicle()
 {
+    delete trailer_coupler_;
+    delete trailer_hitch_;
 }
 
 void Vehicle::SetAllowedPitch()

@@ -975,9 +975,6 @@ void ScenarioEngine::SetupGhost(Object* object)
     entities_.addObject(ghost, true);
     object->SetHeadstartTime(0);
 
-    // remove all init actions from ghost, then create unique copies from object
-    ghost->initActions_.clear();
-
     // move all controllers from object to ghost, except the first one (which is assumed to be a ghost controller)
     object->controllers_.erase(object->controllers_.begin() + 1, object->controllers_.end());
     ghost->controllers_.erase(ghost->controllers_.begin());
@@ -1049,7 +1046,9 @@ void ScenarioEngine::SetupGhost(Object* object)
                                         pa->action_type_ == OSCPrivateAction::ActionType::FOLLOW_TRAJECTORY ||
                                         pa->action_type_ == OSCPrivateAction::ActionType::ASSIGN_ROUTE ||
                                         pa->action_type_ == OSCPrivateAction::ActionType::TELEPORT ||
-                                        pa->action_type_ == OSCPrivateAction::ActionType::ACQUIRE_POSITION)
+                                        pa->action_type_ == OSCPrivateAction::ActionType::ACQUIRE_POSITION ||
+                                        pa->action_type_ == OSCPrivateAction::ActionType::CONNECT_TRAILER_ACTION ||
+                                        pa->action_type_ == OSCPrivateAction::ActionType::DISCONNECT_TRAILER_ACTION)
                                     {
                                         // Replace object
                                         pa->ReplaceObjectRefs(object, ghost);
@@ -1062,7 +1061,6 @@ void ScenarioEngine::SetupGhost(Object* object)
                         {
                             ReplaceObjectInTrigger(event->start_trigger_, object, ghost, -ghost->GetHeadstartTime(), event);
                         }
-                        ghost->addEvent(event);
                     }
                 }
             }
