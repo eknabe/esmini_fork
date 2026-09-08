@@ -1,6 +1,6 @@
 ## esmini release notes
 
-### Version 3.8.1 DRAFT
+### 2026-09-08 Version 3.8.1
 
 New features:
 - Add support for road-delineator
@@ -11,6 +11,8 @@ Improvements and fixes:
   - use subtype to overcome limitations from OpenDRIVE and OSI type incompatibility
   - see [User guide - road objects/OSI mapping](https://esmini.github.io/scenario-features.html#_osi_mapping) for more info
 - Fixed a few artifacts in bus 3D model (bus_blue.osgb)
+- Re-enable manual dispatch of sanitizer and memory leak check jobs
+- Fix issue with ghost connecting a trailer
 
 ### 2026-09-04 Version 3.8.0
 
