@@ -34,8 +34,13 @@ jobs:
       - name: Check recent commits
         id: changes
         run: |
-          COUNT=$(git rev-list --count --since="24 hours ago" origin/dev)
-          echo "$COUNT commits over the last 24 hours found on dev"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            COUNT=1
+            echo "Job triggered manually via workflow_dispatch"
+          else
+            COUNT=$(git rev-list --count --since="24 hours ago" origin/dev)
+            echo "$COUNT commits over the last 24 hours found on dev"
+          fi
           echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
 
       - name: Skip job
