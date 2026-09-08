@@ -703,11 +703,11 @@ OpenDRIVE (odr) https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASA
 
 1. The OpenDRIVE object types `pole`, `tree`, `vegetation`, `barrier`, `building`, and `bridge` map directly to their corresponding OSI stationary-object types.
 2. A `parkingSpace` maps to `TYPE_OTHER` with concrete, solid, grey classification properties. Its parking restrictions are added to the source reference as `restrictions:<value>`.
-3. For all remaining object types, esmini tries to map the subtype to an OSI stationary-object type. The subtype comparison is case-insensitive; `TYPE_` is prepended when it is not already present. For example, subtype `building` maps to `TYPE_BUILDING`.
+3. For all remaining object types, esmini tries to map the subtype to an OSI stationary-object type. The subtype comparison is case-insensitive; `TYPE_` is prepended when it is not already present. For example, subtype `speed_bump` maps to `TYPE_SPEED_BUMP`.
 4. If the subtype does not map, the known OpenDRIVE object types `obstacle`, `railing`, `patch`, `trafficIsland`, `crosswalk`, `streetLamp`, `gantry`, `soundBarrier`, `wind`, and `roadMark` map to `TYPE_OTHER`.
 5. Any other unsupported object type maps to `TYPE_UNKNOWN`.
 
-This schema overcomes limitations from OpenDRIVE and OSI type incompatibility. For example it allows for emitting TYPE_DELINEATOR which has no corresponding road object type. Example:
+This schema overcomes limitations from OpenDRIVE and OSI type incompatibility. For example it allows for emitting TYPE_DELINEATOR which has no corresponding road object type:
 
 ``         <object type="obstacle" subtype="delineator" name="road_delineator" id="9" s="160" t="4" zOffset="0.0"/>
 ``
