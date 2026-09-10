@@ -84,7 +84,9 @@ OpenSCENARIO
                                             lighting (1.2)                     No
                                             controllerRef                      Yes
                                         AnimationAction (1.2)                  No
-                                        AppearanceAction (1.2)                 No
+                                        AppearanceAction (1.2)
+                                            AnimationAction                    No
+                                            LightStateAction                   Yes
                                         AssignController                       Yes
                                             animation (1.2)                    No
                                             lighting (1.2)                     No
@@ -204,7 +206,7 @@ Common classes
     Environment                                No
     TrafficDefinition                          Yes
     Position
-        GeoPosition (1.1)                      No
+        GeoPosition (1.1)                      Yes
         World                                  Yes
         RelativeWorld                          Yes
         RelativeObject                         Yes
@@ -320,7 +322,7 @@ Enumerations
     FollowingMode                              Yes (but only in SpeedProfileAction)
     FractionalCloudCover (1.2)                 Yes
     LateralDisplacement (1.1)                  Yes
-    LightMode (1.2)                            No
+    LightMode (1.2)                            Yes
     LongitudinalDisplacement (1.1)             Yes
     MiscObjectCategory                         Yes
     ObjectType                                 Yes
@@ -352,7 +354,7 @@ Enumerations
     TriggeringEntitiesRule                     Yes
     VehicleCategory                            Yes
     VehicleComponentType (1.2)                 No
-    VehicleLightType (1.2)                     No
+    VehicleLightType (1.2)                     Yes
     Wetness (1.2)                              No
 
 Extensions:
