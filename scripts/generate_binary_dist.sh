@@ -113,6 +113,7 @@ resources/models/grass.jpg \
 resources/models/railing.osgb \
 resources/models/railing-pole.osgb \
 resources/models/guide-post.osgb \
+resources/models/road_delineator.osgb \
 resources/models/cone-100.osgb \
 resources/models/box_cc_by.osgb \
 resources/models/car_trailer.osgb \
