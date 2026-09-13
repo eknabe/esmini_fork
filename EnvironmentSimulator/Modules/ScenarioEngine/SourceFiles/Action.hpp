@@ -172,6 +172,7 @@ namespace scenarioengine
         {
             LOG_INFO("Starting {} type: {} content: {}", Type2Str(), user_action_type_, content_);
             OSCAction::Start(simTime);
+            OSCAction::End();
         }
 
         void Step(double, double) override
