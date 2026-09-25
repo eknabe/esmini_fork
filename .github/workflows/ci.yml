@@ -22,231 +22,233 @@ on:
 env:
   ESMINI_SLIM_TEST: -D USE_OSG=OFF -D USE_SUMO=OFF -D USE_OSI=OFF -D USE_GTEST=ON -D USE_IMPLOT=OFF -D USE_PROJ=OFF
   ESMINI_CHECKS: -D ENABLE_WARNINGS_AS_ERRORS=ON -D ENABLE_INCLUDE_WHAT_YOU_USE=ON
-  USE_TMATE: true
+  USE_UPTERM: false
 
 jobs:
-  # lint:
-  #   runs-on: ubuntu-22.04
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #       with:
-  #         lfs: false
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
 
-  #     - name: Install Python and dependencies
-  #       uses: actions/setup-python@v6
-  #       with:
-  #         python-version: '3.12'
-  #         cache: 'pip'
-  #     - run: pip install -r support/python/requirements.txt
+      - name: Install Python and dependencies
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r support/python/requirements.txt
 
-  #     - name: Make clang-format executable
-  #       run: chmod +x support/script/clang-format-runner.sh
+      - name: Make clang-format executable
+        run: chmod +x support/script/clang-format-runner.sh
 
-  #     - name: Run clang-format lint
-  #       run: pre-commit run clang-format --all-files
+      - name: Run clang-format lint
+        run: pre-commit run clang-format --all-files
 
-  #     - name: Run cmake-format lint
-  #       run: pre-commit run cmake-format --all-files
+      - name: Run cmake-format lint
+        run: pre-commit run cmake-format --all-files
 
-  #     - name: Cache Cppcheck
-  #       uses: actions/cache@v5
-  #       id: cache-cppcheck
-  #       with:
-  #         path: ~/.local/cppcheck-2.17.1
-  #         key: cppcheck-2.17.1-${{ runner.os }}
+      - name: Cache Cppcheck
+        uses: actions/cache@v5
+        id: cache-cppcheck
+        with:
+          path: ~/.local/cppcheck-2.17.1
+          key: cppcheck-2.17.1-${{ runner.os }}
 
-  #     - name: Install build dependencies for Cppcheck
-  #       if: steps.cache-cppcheck.outputs.cache-hit != 'true'
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y build-essential cmake libpcre3-dev
+      - name: Install build dependencies for Cppcheck
+        if: steps.cache-cppcheck.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libpcre3-dev
 
-  #     - name: Build and install Cppcheck
-  #       if: steps.cache-cppcheck.outputs.cache-hit != 'true'
-  #       run: |
-  #         cd /tmp
-  #         wget https://github.com/danmar/cppcheck/archive/refs/tags/2.17.1.tar.gz
-  #         tar -xzf 2.17.1.tar.gz
-  #         cd cppcheck-2.17.1
-  #         mkdir build
-  #         cd build
-  #         cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local/cppcheck-2.17.1 -DCMAKE_BUILD_TYPE=Release
-  #         make -j$(nproc)
-  #         make install
+      - name: Build and install Cppcheck
+        if: steps.cache-cppcheck.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          wget https://github.com/danmar/cppcheck/archive/refs/tags/2.17.1.tar.gz
+          tar -xzf 2.17.1.tar.gz
+          cd cppcheck-2.17.1
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local/cppcheck-2.17.1 -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+          make install
 
-  #     - name: Add Cppcheck to PATH
-  #       run: echo "$HOME/.local/cppcheck-2.17.1/bin" >> $GITHUB_PATH
+      - name: Add Cppcheck to PATH
+        run: echo "$HOME/.local/cppcheck-2.17.1/bin" >> $GITHUB_PATH
 
-  #     - name: Verify Cppcheck version
-  #       run: |
-  #         cppcheck --version
-  #         which cppcheck
+      - name: Verify Cppcheck version
+        run: |
+          cppcheck --version
+          which cppcheck
 
-  #     - name: Run cppcheck lint
-  #       run: pre-commit run cppcheck --all-files
+      - name: Run cppcheck lint
+        run: pre-commit run cppcheck --all-files
 
-  #     - name: Run black-format lint
-  #       run: pre-commit run black-format --all-files
+      - name: Run black-format lint
+        run: pre-commit run black-format --all-files
 
-  # test:
-  #   needs: [lint]
-
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-22.04, macos-14, windows-2022]
-  #       configuration: [Debug, Release]
-
-  #   runs-on: ${{ matrix.os }}
-
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #       with:
-  #         submodules: true
-  #         fetch-tags: true
-  #         # lfs: ${{ github.ref_type == 'tag' && matrix.os == 'ubuntu-22.04' && matrix.configuration == 'Release' }}  # Fetch LFS objects only for Linux release builds
-  #         lfs: false  # replace by above when LFS quota is restored
-  #         fetch-depth: 0
-  #         ref: ${{ github.ref }}
-
-  #     - uses: ./.github/actions/setup_tools_shared
-
-  #     # Generate build number based on offset from former AppVeyor CI machine
-  #     - uses: ./.github/actions/generate_offset_run_number
-
-  #     - name: Cache
-  #       uses: actions/cache@v5
-  #       with:
-  #         path: |
-  #           externals/googletest
-  #           externals/osg
-  #           externals/osi
-  #           externals/sumo
-  #           externals/implot
-  #           externals/proj
-  #           resources/models
-  #         key: ${{ runner.os }}-external-resources
-
-  #     - name: CMake Configure - Windows
-  #       if: runner.os == 'Windows'
-  #       shell: pwsh
-  #       run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -G "Visual Studio 17 2022" -T v142 -A x64
-
-  #     - name: CMake Configure - Linux
-  #       if: runner.os == 'Linux'
-  #       shell: pwsh
-  #       run: cmake . -G Ninja -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }}
-
-  #     - name: CMake Configure - macOS
-  #       if: runner.os == 'macOS'
-  #       shell: pwsh
-  #       run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-
-  #     - name: CMake Build
-  #       run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
-
-  #     - name: Create source archives before generators and test runs
-  #       if: runner.os == 'Linux' && matrix.configuration == 'Release'
-  #       shell: bash
-  #       run: |
-  #         REPO_NAME="$(basename "$PWD")"
-  #         REPO_PARENT="$(dirname "$PWD")"
-  #         EXCLUDE_ITEMS=(.git build OSMP_FMU/build bin code-examples-bin esmini-demo resources/models externals/googletest externals/osg externals/osi externals/sumo externals/implot externals/proj)
-  #         SEVENZ_EXCLUDES=()
-
-  #         # Expand 7z recursive excludes from one shared list.
-  #         for item in "${EXCLUDE_ITEMS[@]}"; do
-  #           SEVENZ_EXCLUDES+=("-xr!${REPO_NAME}/${item}")
-  #         done
-
-  #         pushd "${REPO_PARENT}" >/dev/null
-  #         7z a /tmp/esmini-fullsrc.zip "${REPO_NAME}" "${SEVENZ_EXCLUDES[@]}"
-  #         popd >/dev/null
-
-  #     - name: Upload source archives artifact
-  #       if: runner.os == 'Linux' && matrix.configuration == 'Release'
-  #       uses: actions/upload-artifact@v7
-  #       with:
-  #         name: esmini-fullsrc
-  #         path: /tmp/esmini-fullsrc.zip
-
-  #     - name: Compile minimal C example
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         echo -e '#include "esminiLib.hpp"\n\nint main()\n{\n    return 0;\n}' > pure-c.c
-  #         gcc pure-c.c -I EnvironmentSimulator/Libraries/esminiLib/ ./bin/libesminiLib.so -o pure-c
-  #         ./pure-c
-
-  #     - name: Compile C# wrapper tests
-  #       if: runner.os == 'Windows'
-  #       run: |
-  #         cd test/CSharpWrappers
-  #         cmake . -B build -G "Visual Studio 17 2022" -T v142 -A x64 -DUSE_OSI=ON
-  #         cmake --build build --config ${{ matrix.configuration }}
-
-  #     - name: CMake Build OSMP FMU
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         cd OSMP_FMU
-  #         mkdir build
-  #         cd build
-  #         cmake ..
-  #         cmake --build . -j2
-
-  #     - name: Validate OSMP FMU
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         cd OSMP_FMU/build
-  #         python3 -m venv .venv
-  #         source .venv/bin/activate
-  #         pip3 install fmpy
-  #         fmpy validate esmini.fmu
-
-  #     - name: Run OSMP FMU
-  #       if: runner.os == 'Linux'
-  #       run: |
-  #         cd OSMP_FMU/build
-  #         python3 -m venv .venv
-  #         source .venv/bin/activate
-  #         pip3 install fmpy
-  #         fmpy simulate esmini.fmu --start-values xosc_path ../../resources/xosc/cut-in.xosc
-
-  #     - name: Run Tests - Linux
-  #       if: runner.os == 'Linux'
-  #       run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
-
-  #     - name: Run Tests - macOS
-  #       if: runner.os == 'macOS'
-  #       env:
-  #         DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
-  #       run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p $DEBUG_FLAG
-
-  #     - uses: ./.github/actions/setup_mesa
-  #       with:
-  #         configuration: ${{ matrix.configuration }}
-
-  #     - name: Run Tests - Windows
-  #       if: runner.os == 'Windows'
-  #       env:
-  #         GALLIUM_DRIVER: llvmpipe
-  #         MESA_GL_VERSION_OVERRIDE: 4.5
-  #         DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
-  #       shell: bash
-  #       run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
-
-  #     - uses: ./.github/actions/upload_esmini_artifacts
-  #       if: matrix.configuration == 'Release'
-
-  #     - name: Debugging with tmate
-  #       if: ${{ failure() && env.USE_TMATE == 'true' }}
-  #       uses: mxschmitt/action-tmate@v3
-
-  test-no-external-modules:
-    # needs: [lint]
+  test:
+    needs: [lint]
 
     strategy:
       matrix:
-        # os: [ubuntu-22.04, macos-14, windows-2022]
-        os: [macos-14]
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        configuration: [Debug, Release]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          fetch-tags: true
+          # lfs: ${{ github.ref_type == 'tag' && matrix.os == 'ubuntu-22.04' && matrix.configuration == 'Release' }}  # Fetch LFS objects only for Linux release builds
+          lfs: false  # replace by above when LFS quota is restored
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - uses: ./.github/actions/setup_tools_shared
+
+      # Generate build number based on offset from former AppVeyor CI machine
+      - uses: ./.github/actions/generate_offset_run_number
+
+      - name: Cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            externals/googletest
+            externals/osg
+            externals/osi
+            externals/sumo
+            externals/implot
+            externals/proj
+            resources/models
+          key: ${{ runner.os }}-external-resources
+
+      - name: CMake Configure - Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -G "Visual Studio 17 2022" -T v142 -A x64
+
+      - name: CMake Configure - Linux
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: cmake . -G Ninja -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }}
+
+      - name: CMake Configure - macOS
+        if: runner.os == 'macOS'
+        shell: pwsh
+        run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: CMake Build
+        run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
+
+      - name: Create source archives before generators and test runs
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          REPO_NAME="$(basename "$PWD")"
+          REPO_PARENT="$(dirname "$PWD")"
+          EXCLUDE_ITEMS=(.git build OSMP_FMU/build bin code-examples-bin esmini-demo resources/models externals/googletest externals/osg externals/osi externals/sumo externals/implot externals/proj)
+          SEVENZ_EXCLUDES=()
+
+          # Expand 7z recursive excludes from one shared list.
+          for item in "${EXCLUDE_ITEMS[@]}"; do
+            SEVENZ_EXCLUDES+=("-xr!${REPO_NAME}/${item}")
+          done
+
+          pushd "${REPO_PARENT}" >/dev/null
+          7z a /tmp/esmini-fullsrc.zip "${REPO_NAME}" "${SEVENZ_EXCLUDES[@]}"
+          popd >/dev/null
+
+      - name: Upload source archives artifact
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: esmini-fullsrc
+          path: /tmp/esmini-fullsrc.zip
+
+      - name: Compile minimal C example
+        if: runner.os == 'Linux'
+        run: |
+          echo -e '#include "esminiLib.hpp"\n\nint main()\n{\n    return 0;\n}' > pure-c.c
+          gcc pure-c.c -I EnvironmentSimulator/Libraries/esminiLib/ ./bin/libesminiLib.so -o pure-c
+          ./pure-c
+
+      - name: Compile C# wrapper tests
+        if: runner.os == 'Windows'
+        run: |
+          cd test/CSharpWrappers
+          cmake . -B build -G "Visual Studio 17 2022" -T v142 -A x64 -DUSE_OSI=ON
+          cmake --build build --config ${{ matrix.configuration }}
+
+      - name: CMake Build OSMP FMU
+        if: runner.os == 'Linux'
+        run: |
+          cd OSMP_FMU
+          mkdir build
+          cd build
+          cmake ..
+          cmake --build . -j2
+
+      - name: Validate OSMP FMU
+        if: runner.os == 'Linux'
+        run: |
+          cd OSMP_FMU/build
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip3 install fmpy
+          fmpy validate esmini.fmu
+
+      - name: Run OSMP FMU
+        if: runner.os == 'Linux'
+        run: |
+          cd OSMP_FMU/build
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip3 install fmpy
+          fmpy simulate esmini.fmu --start-values xosc_path ../../resources/xosc/cut-in.xosc
+
+      - name: Run Tests - Linux
+        if: runner.os == 'Linux'
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
+
+      - name: Run Tests - macOS
+        if: runner.os == 'macOS'
+        env:
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p $DEBUG_FLAG
+
+      - uses: ./.github/actions/setup_mesa
+        with:
+          configuration: ${{ matrix.configuration }}
+
+      - name: Run Tests - Windows
+        if: runner.os == 'Windows'
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          MESA_GL_VERSION_OVERRIDE: 4.5
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
+        shell: bash
+        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
+
+      - uses: ./.github/actions/upload_esmini_artifacts
+        if: matrix.configuration == 'Release'
+
+      - name: Debugging with Upterm
+        if: ${{ failure() && env.USE_UPTERM == 'true' }}
+        uses: owenthereal/action-upterm@v1
+        with:
+          wait-timeout-minutes: 15
+          # limit-access-to-actor: true
+
+  test-no-external-modules:
+    needs: [lint]
+
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
         configuration: [Release]
 
     runs-on: ${{ matrix.os }}
@@ -275,10 +277,10 @@ jobs:
             resources/models
           key: ${{ runner.os }}-external-resources
 
-      # run xml validation only here.
-      # 1. Only needs to run once
-      # 2. It's not dependent on configuration, so it can be run by any config
-      # 3. This configuration is faster so validation won't add to total CI run time
+        # run xml validation only here.
+        # 1. Only needs to run once
+        # 2. It's not dependent on configuration, so it can be run by any config
+        # 3. This configuration is faster so validation won't add to total CI run time
       - name: Run schema validation
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
         run: python3 scripts/run_schema_comply.py resources EnvironmentSimulator
@@ -332,71 +334,67 @@ jobs:
         run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
 
       - name: Debugging with Upterm
-        if: ${{ failure() && env.USE_TMATE == 'true' }}
+        if: ${{ failure() && env.USE_UPTERM == 'true' }}
         uses: owenthereal/action-upterm@v1
         with:
-          limit-access-to-actor: true
           wait-timeout-minutes: 15
+          # limit-access-to-actor: true
 
-      # - name: Debugging with tmate
-      #   if: ${{ failure() && env.USE_TMATE == 'true' }}
-      #   uses: mxschmitt/action-tmate@v3
+  release:
+    needs: [test, test-no-external-modules]
+    if: github.ref_type == 'tag'
 
-  # release:
-  #   needs: [test, test-no-external-modules]
-  #   if: github.ref_type == 'tag'
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
 
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-22.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
 
-  #   runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          lfs: false
+          ref: ${{ github.ref }}
 
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #       with:
-  #         fetch-depth: 1
-  #         lfs: false
-  #         ref: ${{ github.ref }}
+      # Generate build number based on offset from former AppVeyor CI machine
+      - uses: ./.github/actions/generate_offset_run_number
 
-  #     # Generate build number based on offset from former AppVeyor CI machine
-  #     - uses: ./.github/actions/generate_offset_run_number
+      - uses: actions/download-artifact@v8
+        with:
+          name: esmini-bin_${{ runner.os }}
 
-  #     - uses: actions/download-artifact@v8
-  #       with:
-  #         name: esmini-bin_${{ runner.os }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: esmini-demo_${{ runner.os }}
 
-  #     - uses: actions/download-artifact@v8
-  #       with:
-  #         name: esmini-demo_${{ runner.os }}
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'Linux'
+        with:
+          name: esmini-fullsrc
+          path: /tmp
 
-  #     - uses: actions/download-artifact@v8
-  #       if: runner.os == 'Linux'
-  #       with:
-  #         name: esmini-fullsrc
-  #         path: /tmp
+      - name: Determine version from tag
+        shell: bash
+        run: echo "ESMINI_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
-  #     - name: Determine version from tag
-  #       shell: bash
-  #       run: echo "ESMINI_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+      - id: release_files
+        name: Determine release files
+        shell: bash
+        run: |
+          {
+            echo 'files<<EOF'
+            echo "esmini-bin_${{ runner.os }}.zip"
+            echo "esmini-demo_${{ runner.os }}.zip"
+            if [ "${RUNNER_OS}" = "Linux" ]; then
+              echo '/tmp/esmini-fullsrc.zip'
+            fi
+            echo EOF
+          } >> $GITHUB_OUTPUT
 
-  #     - id: release_files
-  #       name: Determine release files
-  #       shell: bash
-  #       run: |
-  #         {
-  #           echo 'files<<EOF'
-  #           echo "esmini-bin_${{ runner.os }}.zip"
-  #           echo "esmini-demo_${{ runner.os }}.zip"
-  #           if [ "${RUNNER_OS}" = "Linux" ]; then
-  #             echo '/tmp/esmini-fullsrc.zip'
-  #           fi
-  #           echo EOF
-  #         } >> $GITHUB_OUTPUT
-
-  #     - name: Release
-  #       uses: softprops/action-gh-release@v3
-  #       with:
-  #         name: 'esmini ${{ env.ESMINI_VERSION }} (build ${{ env.BUILD_NUMBER }})'
-  #         body: 'Demo and binaries. For information about changes and new features see [release notes](https://github.com/esmini/esmini/blob/master/release_notes.md).'
-  #         files: ${{ steps.release_files.outputs.files }}
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: 'esmini ${{ env.ESMINI_VERSION }} (build ${{ env.BUILD_NUMBER }})'
+          body: 'Demo and binaries. For information about changes and new features see [release notes](https://github.com/esmini/esmini/blob/master/release_notes.md).'
+          files: ${{ steps.release_files.outputs.files }}
