@@ -331,9 +331,16 @@ jobs:
         shell: bash
         run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
 
-      - name: Debugging with tmate
+      - name: Debugging with Upterm
         if: ${{ failure() && env.USE_TMATE == 'true' }}
-        uses: mxschmitt/action-tmate@v3
+        uses: owenthereal/action-upterm@v1
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 15
+
+      # - name: Debugging with tmate
+      #   if: ${{ failure() && env.USE_TMATE == 'true' }}
+      #   uses: mxschmitt/action-tmate@v3
 
   # release:
   #   needs: [test, test-no-external-modules]
