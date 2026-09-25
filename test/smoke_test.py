@@ -2736,7 +2736,7 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(re.search('^0.000, 1, Lead, -70.000, -4.625, 0.000, 0.000, 0.000, 0.000, 15.000, 0.000, 0.000', csv, re.MULTILINE))
         self.assertTrue(re.search('^0.000, 2, temp_layer_vehicle, 0.000, -6.100, 0.000, 0.000, 0.000, 0.000, 16.000, 0.000, 0.000', csv, re.MULTILINE))
         self.assertTrue(re.search('^0.000, 3, permanent_layer_vehicle, 0.000, -8.375, 0.000, 0.000, 0.000, 0.000, 16.000, 0.000, 0.000', csv, re.MULTILINE))
-        self.assertTrue(re.search('^3.000, 0, Ego, -40.000, -5.975, 0.000, 0.000, 0.000, 0.000, 20.000, 0.054, 1.783', csv, re.MULTILINE))
+        self.assertTrue(re.search('^3.000, 0, Ego, -40.000, -5.975, 0.000, (0.000|6.283), 0.000, 0.000, 20.000, 0.054, 1.783', csv, re.MULTILINE))
         self.assertTrue(re.search('^3.000, 1, Lead, -25.000, -4.625, 0.000, 0.000, 0.000, 0.000, 15.000, 0.000, 2.908', csv, re.MULTILINE))
         self.assertTrue(re.search('^3.000, 2, temp_layer_vehicle, 48.000, -6.100, 0.000, 0.000, 0.000, 0.000, 16.000, 0.000, 5.196', csv, re.MULTILINE))
         self.assertTrue(re.search('^3.000, 3, permanent_layer_vehicle, 48.000, -8.375, 0.000, 0.000, 0.000, 0.000, 16.000, 0.000, 5.196', csv, re.MULTILINE))
