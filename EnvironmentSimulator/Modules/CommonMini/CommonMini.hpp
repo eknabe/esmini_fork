@@ -1323,6 +1323,18 @@ public:
         x_ = x_ + v_ * timeStep;
     }
 
+    // Exact solution for critical damping (d = 2*sqrt(t)), stable for any time step
+    void UpdateCritical(double timeStep)
+    {
+        double w     = sqrt(t_);
+        double e     = x_ - x0_;
+        double c     = v_ + w * e;
+        double decay = exp(-w * timeStep);
+        x_           = x0_ + (e + c * timeStep) * decay;
+        v_           = (v_ - w * c * timeStep) * decay;
+        a_           = -t_ * (x_ - x0_) - 2 * w * v_;
+    }
+
     void SetValue(double value)
     {
         x_ = value;
@@ -1359,6 +1371,11 @@ public:
         {
             d_ = 2 * sqrt(t_);
         }
+    }
+
+    double GetTension() const
+    {
+        return t_;
     }
 
     void SetDamping(double damping)
