@@ -223,15 +223,16 @@ int ScenarioEngine::step(double deltaSimTime)
             defaultController(obj, deltaSimTime);
         }
 
-        if (!obj->pos_.GetRoute())
+        roadmanager::Position& drive_pos = obj->GetDrivePosition();
+        if (!drive_pos.GetRoute())
         {
-            if (obj->GetJunctionSelectorStrategy() == roadmanager::Junction::JunctionStrategyType::RANDOM && obj->pos_.IsInJunction() &&
+            if (obj->GetJunctionSelectorStrategy() == roadmanager::Junction::JunctionStrategyType::RANDOM && drive_pos.IsInJunction() &&
                 obj->GetJunctionSelectorAngle() >= 0)
             {
                 // Set junction selector angle as undefined during junction
                 obj->SetJunctionSelectorAngle(std::nan(""));
             }
-            else if (obj->GetJunctionSelectorStrategy() == roadmanager::Junction::JunctionStrategyType::RANDOM && !obj->pos_.IsInJunction() &&
+            else if (obj->GetJunctionSelectorStrategy() == roadmanager::Junction::JunctionStrategyType::RANDOM && !drive_pos.IsInJunction() &&
                      std::isnan(obj->GetJunctionSelectorAngle()))
             {
                 // Set new random junction selector after coming out of junction
@@ -239,7 +240,7 @@ int ScenarioEngine::step(double deltaSimTime)
             }
         }
 
-        if (obj->pos_.GetStatusBitMask() & static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD))
+        if (drive_pos.GetStatusBitMask() & static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD))
         {
             if (!obj->IsEndOfRoad())
             {
@@ -317,7 +318,7 @@ int ScenarioEngine::step(double deltaSimTime)
         }
     }
 
-    // adjust heading wrt any reference point x offset from rear wheel axle
+    // Track rear axle motion at the entity origin, independently of the drive point.
     for (size_t i = 0; i < entities_.object_.size(); i++)
     {
         Object* obj = entities_.object_[i];
@@ -329,15 +330,10 @@ int ScenarioEngine::step(double deltaSimTime)
             {
                 if (!NEAR_ZERO(v->GetRefpointXOffset()))
                 {
-                    double xy_heading = GetAngleInInterval2PI(atan2(v->pos_.GetY() - v->rear_axle_pos_.y(), v->pos_.GetX() - v->rear_axle_pos_.x()));
-
-                    v->pos_.SetInertiaPos(v->pos_.GetX(), v->pos_.GetY(), xy_heading);
-
-                    // calculate new rear axle position and then its speed
-                    SE_Vector rac         = SE_Vector(v->pos_.GetX(), v->pos_.GetY()) + SE_Vector(-v->GetRefpointXOffset(), 0.0).Rotate(xy_heading);
+                    SE_Vector rac(v->pos_.GetX(), v->pos_.GetY());
                     v->rear_axle_vel_     = (rac - v->rear_axle_pos_) / MAX(SMALL_NUMBER, deltaSimTime);
                     v->rear_axle_pos_     = rac;
-                    SE_Vector heading_dir = SE_Vector(1.0, 0.0).Rotate(xy_heading);
+                    SE_Vector heading_dir = SE_Vector(1.0, 0.0).Rotate(v->pos_.GetH());
 
                     // project rear axle velocity on heading direction to get longitudinal speed at rear axle
                     double projected_speed[2];
@@ -621,6 +617,7 @@ int ScenarioEngine::defaultController(Object* obj, double dt)
             {
                 double steplen = obj->speed_ * dt;
                 retval         = static_cast<int>(obj->MoveAlongS(steplen, true));
+                obj->UpdateReferencePosition(dt);
                 if (retval == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
                 {
                     // Something went wrong, couldn't move vehicle forward. Stop.

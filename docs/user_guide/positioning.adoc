@@ -443,17 +443,25 @@ Mode is a scenario parameter and can easily be changed in the ParameterDeclarati
 
 Regarding use cases of the LateralDistanceAction in entity coordinate system, we have no clue. But we're interested to learn how, if ever, its' being used. Please let us know.
 
-=== Shift reference point
+=== Shift drive point
 
-Although OpenSCENARIO XML https://publications.pages.asam.net/standards/ASAM_OpenSCENARIO/ASAM_OpenSCENARIO_XML/latest/06_general_concepts/06_03_coordinate_systems.html#_vehicle_coordinate_system_xv_yv_zv[specifies] the reference point of vehicles to be at rear axle, esmini, from v2.56.0, supports offsetting the reference point along vehicle x-axis.
+The *reference point* is the origin of the entity coordinate system. For vehicles it remains at mid rear axle, ground level, as https://publications.pages.asam.net/standards/ASAM_OpenSCENARIO/ASAM_OpenSCENARIO_XML/latest/06_general_concepts/06_03_coordinate_systems.html#_vehicle_coordinate_system_xv_yv_zv[specified by OpenSCENARIO XML].
+
+The *drive point* is the point positioned by scenario actions and moved by the default controller. By default it coincides with the reference point. The existing Vehicle property `refpoint_x_offset` places the drive point along the vehicle's local x-axis, relative to the reference point. Positive values place it ahead, negative values behind. Offsets beyond the vehicle's bounding box are allowed.
+
+Scenario positions, including initialization, TeleportAction and trajectory positions, locate the drive point. Default lane following maintains the drive point's lane offset. The vehicle heading evolves as the rear axle follows the drive point.
+
+Reported positions (including the C API, recordings and ground truth), relative entity coordinates, bounding boxes and model geometry use the unchanged reference point. Direct position reports from external controllers or the C API (`SE_ReportObjectPos*`) also locate the reference point; injected scenario actions retain drive-point semantics. Velocity and acceleration vectors are derived at the reference point; scenario speed remains the speed used to advance the drive point.
+
+NOTE: Previously, `refpoint_x_offset` moved the entity coordinate origin itself. Scenarios keep the same property, but integrations consuming shifted positions must now use the rear-axle origin. Existing recordings retain their original rendering semantics.
 
 The video clip below demonstrates moving the reference point to the front axle, in effect following trajectory by front axle.
 
 video::gvfFI4hgw1M[youtube,width=854,height=480,opts="autoplay,nocontrols,loop"]
 
-The reference point can be placed anywhere along the vehicle x-axis, relative mid rear axle, by specifying the Vehicle property `refpoint_x_offset`.
+For example, set `refpoint_x_offset` to the wheelbase to follow a trajectory by the front axle.
 
-.Original reference point (red) can be moved along vehicle x-axis, for example at midpoint or front axle.
+.The drive point can be placed along the vehicle x-axis, for example at midpoint or front axle. The reference point remains at the rear axle.
 image::x_offset.png[]
 
 Example:
@@ -486,7 +494,7 @@ Settings for `m1_audi_q7_2015` (in openx_assets_3d.catalog.xosc):
 ----
 
 * `model_x_offset`: Align the 3D model to the OpenSCENARIO reference point (it's at center in this model)
-* `refpoint_x_offset`: Move the reference point along the vehicle x-axis
+* `refpoint_x_offset`: Place the drive point along the vehicle x-axis without moving the reference point
 
 === Geo positioning
 
@@ -510,4 +518,3 @@ example: `"geo_pos:50.111349,8.682214"`
 . Function in esminiLib: +
 ``int SE_GetGeoPos(int object_id, double *lat, double *lon);`` +
 This function returns `-1` if the object does not exist or the loaded OpenDRIVE file has no usable `geoReference`.
-

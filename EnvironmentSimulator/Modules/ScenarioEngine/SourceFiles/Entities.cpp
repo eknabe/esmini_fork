@@ -126,6 +126,88 @@ void Object::SetStandStill(bool state, double time)
     }
 }
 
+Position& Object::GetDrivePosition()
+{
+    if (NEAR_ZERO(refpoint_x_offset_))
+    {
+        return pos_;
+    }
+
+    const std::array<double, 6> pose = {pos_.GetX(), pos_.GetY(), pos_.GetZ(), pos_.GetH(), pos_.GetP(), pos_.GetR()};
+    if (!drive_position_valid_ || pose != reference_pose_)
+    {
+        // An external controller/API update locates the entity origin, not the drive point.
+        drive_position_.Duplicate(pos_);
+        drive_position_.SetTrajectory(pos_.GetTrajectory());
+        if (drive_position_.GetRoute() == nullptr && pos_.GetRoute() != nullptr)
+        {
+            drive_position_.CopyRoute(pos_);
+        }
+        drive_position_.SetInertiaPosMode(pos_.GetX() + refpoint_x_offset_ * cos(pos_.GetH()) * cos(pos_.GetP()),
+                                          pos_.GetY() + refpoint_x_offset_ * sin(pos_.GetH()) * cos(pos_.GetP()),
+                                          pos_.GetZ() - refpoint_x_offset_ * sin(pos_.GetP()),
+                                          pos_.GetH(),
+                                          pos_.GetP(),
+                                          pos_.GetR(),
+                                          Position::PosMode::Z_ABS | Position::PosMode::H_ABS | Position::PosMode::P_ABS | Position::PosMode::R_ABS);
+        reference_pose_       = pose;
+        drive_position_valid_ = true;
+    }
+    drive_position_.SetVel(pos_.GetVelX(), pos_.GetVelY(), pos_.GetVelZ());
+    drive_position_.SetAcc(pos_.GetAccX(), pos_.GetAccY(), pos_.GetAccZ());
+    drive_position_.SetAngularVel(pos_.GetHRate(), pos_.GetPRate(), pos_.GetRRate());
+    drive_position_.SetAngularAcc(pos_.GetHAcc(), pos_.GetPAcc(), pos_.GetRAcc());
+    drive_position_.CopyConfig(pos_);
+    return drive_position_;
+}
+
+void Object::UpdateReferencePosition(double dt)
+{
+    if (NEAR_ZERO(refpoint_x_offset_) || !drive_position_valid_)
+    {
+        return;
+    }
+
+    if (dt > SMALL_NUMBER && !dirty_.Check(DirtyBit::TELEPORT) && type_ == Type::VEHICLE)
+    {
+        const Vehicle* vehicle = static_cast<const Vehicle*>(this);
+        const double   dx      = drive_position_.GetX() - vehicle->rear_axle_pos_.x();
+        const double   dy      = drive_position_.GetY() - vehicle->rear_axle_pos_.y();
+        if (GetLengthOfVector2D(dx, dy) > SMALL_NUMBER)
+        {
+            drive_position_.SetHeading(GetAngleInInterval2PI(atan2(dy, dx) + (refpoint_x_offset_ < 0.0 ? M_PI : 0.0)));
+        }
+    }
+
+    if (drive_position_.GetRoute() != nullptr)
+    {
+        drive_position_.CalcRoutePosition();
+    }
+    pos_.Duplicate(drive_position_);
+    pos_.SetTrajectory(drive_position_.GetTrajectory());
+    if (drive_position_.GetRoute() == nullptr)
+    {
+        delete pos_.GetRoute();
+        pos_.SetRoute(nullptr);
+    }
+    else if (pos_.GetRoute() == nullptr)
+    {
+        pos_.CopyRoute(drive_position_);
+    }
+    else
+    {
+        *pos_.GetRoute() = *drive_position_.GetRoute();
+    }
+    pos_.SetInertiaPosMode(drive_position_.GetX() - refpoint_x_offset_ * cos(drive_position_.GetH()) * cos(drive_position_.GetP()),
+                           drive_position_.GetY() - refpoint_x_offset_ * sin(drive_position_.GetH()) * cos(drive_position_.GetP()),
+                           drive_position_.GetZ() + refpoint_x_offset_ * sin(drive_position_.GetP()),
+                           drive_position_.GetH(),
+                           drive_position_.GetP(),
+                           drive_position_.GetR(),
+                           Position::PosMode::Z_ABS | Position::PosMode::H_ABS | Position::PosMode::P_ABS | Position::PosMode::R_ABS);
+    reference_pose_ = {pos_.GetX(), pos_.GetY(), pos_.GetZ(), pos_.GetH(), pos_.GetP(), pos_.GetR()};
+}
+
 Position::ReturnCode Object::MoveAlongS(double ds, bool actualDistance)
 {
     roadmanager::Layer old_lane_layer = current_lane_layer_;
@@ -135,16 +217,17 @@ Position::ReturnCode Object::MoveAlongS(double ds, bool actualDistance)
     // - Otherwise, use lane_layer_preference_ to allow natural transitions via lane links
     roadmanager::Layer positioning_lane_layer = explicit_lane_layer_set_ ? current_lane_layer_ : lane_layer_preference_;
 
-    Position::ReturnCode ret = pos_.MoveAlongS(ds,
-                                               0.0,
-                                               GetJunctionSelectorAngle(),
-                                               actualDistance,
-                                               Position::MoveDirectionMode::HEADING_DIRECTION,
-                                               true,
-                                               positioning_lane_layer);
+    Position&            drive_pos = GetDrivePosition();
+    Position::ReturnCode ret       = drive_pos.MoveAlongS(ds,
+                                                    0.0,
+                                                    GetJunctionSelectorAngle(),
+                                                    actualDistance,
+                                                    Position::MoveDirectionMode::HEADING_DIRECTION,
+                                                    true,
+                                                    positioning_lane_layer);
 
     // Check what lane layer we actually ended up on after the move
-    roadmanager::Layer new_lane_layer = pos_.GetCurrentLaneLayer();
+    roadmanager::Layer new_lane_layer = drive_pos.GetCurrentLaneLayer();
 
     // If we were on an explicitly set lane layer but ended up on a different one,
     // it means the explicit lane layer ended and we transitioned via lane links (or it doesn't exist)
@@ -160,6 +243,7 @@ Position::ReturnCode Object::MoveAlongS(double ds, bool actualDistance)
         current_lane_layer_ = new_lane_layer;
     }
 
+    UpdateReferencePosition();
     return ret;
 }
 
@@ -2097,19 +2181,8 @@ void Vehicle::AlignTrailers()
 
 void Vehicle::AlignRearAxlePosition()
 {
-    // Calculate rear axle position given reference point position and heading
-    if (!NEAR_ZERO(GetRefpointXOffset()))
-    {
-        // rear axle position offset from reference point
-        rear_axle_pos_ = SE_Vector(pos_.GetX(), pos_.GetY()) + SE_Vector(-GetRefpointXOffset(), 0.0).Rotate(pos_.GetH());
-        rear_axle_vel_ = SE_Vector(pos_.GetVelX(), pos_.GetVelY());
-    }
-    else
-    {
-        // no offset, rear axle coincides with reference position
-        rear_axle_pos_.Set(pos_.GetX(), pos_.GetY());
-        rear_axle_vel_.Set(pos_.GetVelX(), pos_.GetVelY());
-    }
+    rear_axle_pos_.Set(pos_.GetX(), pos_.GetY());
+    rear_axle_vel_.Set(pos_.GetVelX(), pos_.GetVelY());
 
     // velocity is aligned with heading at this point, hence rear axle speed equals reference point speed
     rear_axle_speed_ = GetSpeed();

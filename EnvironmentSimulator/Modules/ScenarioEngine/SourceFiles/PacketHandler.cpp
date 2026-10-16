@@ -302,10 +302,10 @@ int Dat::DatWriter::WriteObjectStatesToDat(const std::vector<scenarioengine::Obj
             Write(PacketId::POS_S, cache_it->second.pos_s_);
         }
 
-        // PacketId::REFPOINT_X_OFFSET
-        if (!NEAR_NUMBERS(cache_it->second.refpoint_x_offset_, obj->refpoint_x_offset_))
+        // Legacy rendering offset: new recordings are already located at the entity origin.
+        if (!NEAR_NUMBERS(cache_it->second.refpoint_x_offset_, 0.0))
         {
-            cache_it->second.refpoint_x_offset_ = obj->refpoint_x_offset_;
+            cache_it->second.refpoint_x_offset_ = 0.0;
             Write(PacketId::REFPOINT_X_OFFSET, cache_it->second.refpoint_x_offset_);
         }
 

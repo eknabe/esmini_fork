@@ -775,7 +775,6 @@ Vehicle *ScenarioReader::parseOSCVehicle(pugi::xml_node vehicleNode)
     if (!refpoint_x_offset.empty())
     {
         vehicle->SetRefpointXOffset(strtod(refpoint_x_offset));
-        vehicle->boundingbox_.center_.x_ -= vehicle->GetRefpointXOffset();
     }
 
     // Trailer related elements

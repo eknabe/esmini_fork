@@ -22,6 +22,29 @@
 
 using namespace scenarioengine;
 
+namespace
+{
+    // Publish the entity origin even when an action returns early or completes during its step.
+    class DrivePointUpdate
+    {
+    public:
+        DrivePointUpdate(Object* object, double dt) : object_(object), dt_(dt)
+        {
+            object_->GetDrivePosition();
+        }
+        ~DrivePointUpdate()
+        {
+            object_->UpdateReferencePosition(dt_);
+        }
+        DrivePointUpdate(const DrivePointUpdate&)            = delete;
+        DrivePointUpdate& operator=(const DrivePointUpdate&) = delete;
+
+    private:
+        Object* object_;
+        double  dt_;
+    };
+}  // namespace
+
 // Equations used in TransitionDynamics
 // ------------------------------------
 // a = start value
@@ -295,6 +318,11 @@ void OSCPrivateAction::TransitionDynamics::UpdateRate()
 
 AssignRouteAction::~AssignRouteAction()
 {
+    object_->GetDrivePosition().SetRoute(nullptr);
+    if (!NEAR_ZERO(object_->GetRefpointXOffset()))
+    {
+        delete object_->pos_.GetRoute();
+    }
     object_->pos_.SetRoute(nullptr);
     if (route_ != nullptr)
     {
@@ -305,8 +333,9 @@ AssignRouteAction::~AssignRouteAction()
 
 void AssignRouteAction::Start(double simTime)
 {
+    DrivePointUpdate drive_point_update(object_, 0.0);
     route_->setObjName(object_->GetName());
-    object_->pos_.SetRoute(route_);
+    object_->GetDrivePosition().SetRoute(route_);
     object_->dirty_.SetBits(Object::DirtyBit::ROUTE);
 
     OSCAction::Start(simTime);
@@ -409,11 +438,11 @@ void FollowTrajectoryAction::Start(double simTime)
         return;
     }
 
-    traj_->Freeze(following_mode_, object_->GetSpeed(), &object_->pos_);
-    object_->pos_.SetTrajectory(traj_);
+    traj_->Freeze(following_mode_, object_->GetSpeed(), &object_->GetDrivePosition());
+    object_->GetDrivePosition().SetTrajectory(traj_);
 
     // establish initial position along trajectory (s) and register initial time
-    object_->pos_.SetTrajectoryS(initialDistanceOffset_);
+    object_->GetDrivePosition().SetTrajectoryS(initialDistanceOffset_);
     time_ = traj_->GetTime();
 
     // Save states for relative timing domain
@@ -438,17 +467,17 @@ void FollowTrajectoryAction::Start(double simTime)
     // establish initial heading
     if (traj_->IsHSetExplicitly())
     {
-        object_->pos_.SetHeading(traj_->GetH());
+        object_->GetDrivePosition().SetHeading(traj_->GetH());
         explicit_h_active_ = true;
     }
     else
     {
         // heading not specified: align with trajectory, forward or backwards according to speed sign
-        object_->pos_.SetHeading(GetAngleInInterval2PI(traj_->GetHTrue() + (speedSign < 0 ? M_PI : 0.0)));
+        object_->GetDrivePosition().SetHeading(GetAngleInInterval2PI(traj_->GetHTrue() + (speedSign < 0 ? M_PI : 0.0)));
         explicit_h_active_ = false;
     }
 
-    initialHeadingSign_ = GetAbsAngleDifference(object_->pos_.GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER ? -1 : 1;
+    initialHeadingSign_ = GetAbsAngleDifference(object_->GetDrivePosition().GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER ? -1 : 1;
 
     if (traj_->IsHSetExplicitly() && ignore_heading_for_motion_)
     {
@@ -484,14 +513,16 @@ void FollowTrajectoryAction::End()
     }
 
     // remove trajectory from object, but double check the trajectory comes from this action
-    if (object_->pos_.GetTrajectory() == traj_)
+    if (object_->GetDrivePosition().GetTrajectory() == traj_)
     {
+        object_->GetDrivePosition().SetTrajectory(nullptr);
         object_->pos_.SetTrajectory(nullptr);
     }
 }
 
 void FollowTrajectoryAction::Step(double simTime, double dt)
 {
+    DrivePointUpdate drive_point_update(object_, dt);
     if (object_->IsControllerModeOnDomains(ControlOperationMode::MODE_OVERRIDE, static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)))
     {
         // lateral motion controlled elsewhere
@@ -509,7 +540,7 @@ void FollowTrajectoryAction::Step(double simTime, double dt)
         return;
     }
 
-    double old_s = object_->pos_.GetTrajectoryS();
+    double old_s = object_->GetDrivePosition().GetTrajectoryS();
 
     // Adjust absolute time for any ghost headstart
     double timeOffset = (timing_domain_ == TimingDomain::TIMING_ABSOLUTE && object_->IsGhost()) ? object_->GetHeadstartTime() : 0.0;
@@ -529,17 +560,19 @@ void FollowTrajectoryAction::Step(double simTime, double dt)
     // Trajectories with time stamps:
     //     always ends when time >= trajectory duration (last timestamp)
     if (((timing_domain_ == TimingDomain::NONE && !traj_->closed_) && dt > 0.0 &&
-         ((movingDirection_ * fabs(object_->GetSpeed()) > 0.0 && object_->pos_.GetTrajectoryS() > (traj_->GetLength() - SMALL_NUMBER)) ||
-          (movingDirection_ * fabs(object_->GetSpeed()) < 0.0 && object_->pos_.GetTrajectoryS() < SMALL_NUMBER))) ||
+         ((movingDirection_ * fabs(object_->GetSpeed()) > 0.0 &&
+           object_->GetDrivePosition().GetTrajectoryS() > (traj_->GetLength() - SMALL_NUMBER)) ||
+          (movingDirection_ * fabs(object_->GetSpeed()) < 0.0 && object_->GetDrivePosition().GetTrajectoryS() < SMALL_NUMBER))) ||
         (timing_domain_ != TimingDomain::NONE && time_ + timeOffset > traj_->GetStartTime() + traj_->GetDuration() - SMALL_NUMBER))
     {
         // Reached end, or start, of trajectory
         double remaningDistance = 0.0;
         if (timing_domain_ == TimingDomain::NONE && !traj_->closed_ &&
-            (object_->pos_.GetTrajectoryS() > (traj_->GetLength() - SMALL_NUMBER) || (object_->pos_.GetTrajectoryS() < SMALL_NUMBER)))
+            (object_->GetDrivePosition().GetTrajectoryS() > (traj_->GetLength() - SMALL_NUMBER) ||
+             (object_->GetDrivePosition().GetTrajectoryS() < SMALL_NUMBER)))
         {
             // Move the remaning distance along road at current lane offset
-            remaningDistance = fabs(object_->speed_) * dt - fabs(object_->pos_.GetTrajectoryS() - old_s);
+            remaningDistance = fabs(object_->speed_) * dt - fabs(object_->GetDrivePosition().GetTrajectoryS() - old_s);
         }
         else if (timing_domain_ != TimingDomain::NONE && time_ + timeOffset > traj_->GetStartTime() + traj_->GetDuration() - SMALL_NUMBER)
         {
@@ -552,12 +585,12 @@ void FollowTrajectoryAction::Step(double simTime, double dt)
         double dx = remaningDistance * cos(traj_->GetH());
         double dy = remaningDistance * sin(traj_->GetH());
 
-        object_->pos_.SetInertiaPos(object_->pos_.GetX() + dx,
-                                    object_->pos_.GetY() + dy,
-                                    std::nan(""),   // don't update Z
-                                    std::nan(""),   // don't update Heading
-                                    std::nan(""),   // don't update Pitch
-                                    std::nan(""));  // don't update Roll
+        object_->GetDrivePosition().SetInertiaPos(object_->GetDrivePosition().GetX() + dx,
+                                                  object_->GetDrivePosition().GetY() + dy,
+                                                  std::nan(""),   // don't update Z
+                                                  std::nan(""),   // don't update Heading
+                                                  std::nan(""),   // don't update Pitch
+                                                  std::nan(""));  // don't update Roll
 
         End();
     }
@@ -565,13 +598,13 @@ void FollowTrajectoryAction::Step(double simTime, double dt)
 
 void scenarioengine::FollowTrajectoryAction::Move(double simTime, double dt)
 {
-    double old_s = object_->pos_.GetTrajectoryS();
+    double old_s = object_->GetDrivePosition().GetTrajectoryS();
 
     // Adjust absolute time for any ghost headstart
     double timeOffset = (timing_domain_ == TimingDomain::TIMING_ABSOLUTE && object_->IsGhost()) ? object_->GetHeadstartTime() : 0.0;
 
     movingDirection_     = 1;  // init to forward motion, will be re-evalutated for non-timestamp modes
-    int headingDirection = (GetAbsAngleDifference(object_->pos_.GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER) ? -1 : 1;
+    int headingDirection = (GetAbsAngleDifference(object_->GetDrivePosition().GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER) ? -1 : 1;
 
     // Move along trajectory
     if (
@@ -582,7 +615,7 @@ void scenarioengine::FollowTrajectoryAction::Move(double simTime, double dt)
     {
         // determine moving direction based on segment inital heading, in addition to speed sign
         movingDirection_ = SIGN(object_->GetSpeed()) * initialHeadingSign_;
-        object_->pos_.MoveTrajectoryDS(movingDirection_ * fabs(object_->speed_) * dt);
+        object_->GetDrivePosition().MoveTrajectoryDS(movingDirection_ * fabs(object_->speed_) * dt);
     }
     else
     {
@@ -590,7 +623,7 @@ void scenarioengine::FollowTrajectoryAction::Move(double simTime, double dt)
         {
             // Relative timing domain: trajectory time runs relative to when THIS action started,
             time_ = traj_start_time_ + (simTime - start_time_) * timing_scale_;
-            object_->pos_.SetTrajectoryPosByTime(time_ + timing_offset_);
+            object_->GetDrivePosition().SetTrajectoryPosByTime(time_ + timing_offset_);
         }
         else if (timing_domain_ == TimingDomain::TIMING_ABSOLUTE)
         {
@@ -599,15 +632,15 @@ void scenarioengine::FollowTrajectoryAction::Move(double simTime, double dt)
                 // simTime already represents this tick's committed simulation instant - no further dt advance needed
                 time_ = simTime * timing_scale_;
             }
-            object_->pos_.SetTrajectoryPosByTime(time_ + timeOffset + timing_offset_);
+            object_->GetDrivePosition().SetTrajectoryPosByTime(time_ + timeOffset + timing_offset_);
         }
         // calculate and update actual speed only while not reached end of trajectory,
         // since the movement is based on remaining length of trajectory, not speed
         if ((dt > SMALL_NUMBER) &&  // skip speed update if timestep is zero
             (time_ + timeOffset < traj_->GetStartTime() + traj_->GetDuration() + SMALL_NUMBER))
         {
-            movingDirection_ = SIGN(object_->pos_.GetTrajectoryS() - old_s);
-            object_->SetSpeed(movingDirection_ * headingDirection * fabs(object_->pos_.GetTrajectoryS() - old_s) / dt);
+            movingDirection_ = SIGN(object_->GetDrivePosition().GetTrajectoryS() - old_s);
+            object_->SetSpeed(movingDirection_ * headingDirection * fabs(object_->GetDrivePosition().GetTrajectoryS() - old_s) / dt);
         }
     }
     // Check if switching into segment with no specified heading
@@ -620,14 +653,14 @@ void scenarioengine::FollowTrajectoryAction::Move(double simTime, double dt)
         if (explicit_h_active_)
         {
             // entering a segment lacking specified heading, determine moving direction based on relative heading
-            initialHeadingSign_ = GetAbsAngleDifference(object_->pos_.GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER ? -1 : 1;
+            initialHeadingSign_ = GetAbsAngleDifference(object_->GetDrivePosition().GetH(), traj_->GetHTrue()) > M_PI_2 + SMALL_NUMBER ? -1 : 1;
             explicit_h_active_  = false;
         }
 
         // adjust entity heading
         if (initialHeadingSign_ < 0)
         {
-            object_->pos_.SetHeading(GetAngleInInterval2PI(object_->pos_.GetH() + M_PI));
+            object_->GetDrivePosition().SetHeading(GetAngleInInterval2PI(object_->GetDrivePosition().GetH() + M_PI));
         }
     }
 }
@@ -655,6 +688,11 @@ void FollowTrajectoryAction::ReplaceObjectRefs(Object* obj1, Object* obj2)
 
 AcquirePositionAction::~AcquirePositionAction()
 {
+    object_->GetDrivePosition().SetRoute(nullptr);
+    if (!NEAR_ZERO(object_->GetRefpointXOffset()))
+    {
+        delete object_->pos_.GetRoute();
+    }
     object_->pos_.SetRoute(nullptr);
     if (route_ != nullptr)
     {
@@ -665,6 +703,7 @@ AcquirePositionAction::~AcquirePositionAction()
 
 void AcquirePositionAction::Start(double simTime)
 {
+    DrivePointUpdate drive_point_update(object_, 0.0);
     // Resolve route
     if (route_ != nullptr)
     {
@@ -676,14 +715,14 @@ void AcquirePositionAction::Start(double simTime)
     route_->setObjName(object_->GetName());
 
     // find route from current position and considering current heading direction
-    roadmanager::Position start_wp(object_->pos_);
-    start_wp.SetHeadingRelative(fabs(GetAngleInIntervalMinusPIPlusPI(object_->pos_.GetHRelative())) > M_PI_2 ? M_PI : 0.0);
+    roadmanager::Position start_wp(object_->GetDrivePosition());
+    start_wp.SetHeadingRelative(fabs(GetAngleInIntervalMinusPIPlusPI(object_->GetDrivePosition().GetHRelative())) > M_PI_2 ? M_PI : 0.0);
     start_wp.SetModeBits(roadmanager::Position::PosModeType::INIT, roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::H_SET);
     route_->AddWaypoint(start_wp);
     route_->AddWaypoint(target_position_);
     route_->CheckValid();
 
-    object_->pos_.SetRoute(route_);
+    object_->GetDrivePosition().SetRoute(route_);
     object_->dirty_.SetBits(Object::DirtyBit::ROUTE);
 
     OSCAction::Start(simTime);
@@ -898,14 +937,14 @@ void LatLaneChangeAction::Start(double simTime)
     }
 
     // Reset orientation, align to road
-    object_->pos_.SetHeadingRelativeRoadDirection(0.0);
-    object_->pos_.SetPitchRelative(0.0);
-    object_->pos_.SetRollRelative(0.0);
+    object_->GetDrivePosition().SetHeadingRelativeRoadDirection(0.0);
+    object_->GetDrivePosition().SetPitchRelative(0.0);
+    object_->GetDrivePosition().SetRollRelative(0.0);
 
     // Set initial state
-    internal_pos_ = object_->pos_;
+    internal_pos_ = object_->GetDrivePosition();
 
-    if (target_->layer_ != object_->GetCurrentLaneLayer() && target_lane_id_ != object_->pos_.GetLaneId())
+    if (target_->layer_ != object_->GetCurrentLaneLayer() && target_lane_id_ != object_->GetDrivePosition().GetLaneId())
     {
         object_->SetCurrentLaneLayer(target_->layer_);
     }
@@ -921,7 +960,8 @@ void LatLaneChangeAction::Start(double simTime)
 
 void LatLaneChangeAction::Step(double simTime, double dt)
 {
-    double offset_agnostic = internal_pos_.GetOffset() * SIGN(internal_pos_.GetLaneId());
+    DrivePointUpdate drive_point_update(object_, dt);
+    double           offset_agnostic = internal_pos_.GetOffset() * SIGN(internal_pos_.GetLaneId());
 
     if (object_->IsControllerModeOnDomains(ControlOperationMode::MODE_OVERRIDE, static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)))
     {
@@ -952,7 +992,7 @@ void LatLaneChangeAction::Step(double simTime, double dt)
         if (fabs(offset_agnostic - transition_.GetTargetVal()) < SMALL_NUMBER)
         {
             OSCAction::End();
-            object_->pos_.SetHeadingRelativeRoadDirection(0.0);
+            object_->GetDrivePosition().SetHeadingRelativeRoadDirection(0.0);
         }
         object_->dirty_.SetBits(Object::DirtyBit::SPEED);
         return;
@@ -1000,12 +1040,12 @@ void LatLaneChangeAction::Step(double simTime, double dt)
     }
 
     // Restore position to target lane and new offset
-    object_->pos_.SetLanePos(internal_pos_.GetTrackId(),
-                             internal_pos_.GetLaneId(),
-                             internal_pos_.GetS(),
-                             offset_agnostic * SIGN(internal_pos_.GetLaneId()),
-                             IDX_UNDEFINED,
-                             target_->layer_);
+    object_->GetDrivePosition().SetLanePos(internal_pos_.GetTrackId(),
+                                           internal_pos_.GetLaneId(),
+                                           internal_pos_.GetS(),
+                                           offset_agnostic * SIGN(internal_pos_.GetLaneId()),
+                                           IDX_UNDEFINED,
+                                           target_->layer_);
 
     if (instant_transition)
     {
@@ -1013,25 +1053,27 @@ void LatLaneChangeAction::Step(double simTime, double dt)
         delta_long = step_len;
     }
 
-    double ds = object_->pos_.DistanceToDS(SIGN(object_->speed_) * delta_long);  // find correspondning delta s along road reference line
+    double ds =
+        object_->GetDrivePosition().DistanceToDS(SIGN(object_->speed_) * delta_long);  // find correspondning delta s along road reference line
 
-    object_->pos_.MoveAlongS(ds, 0.0, -1.0, false, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true, target_->layer_);
-    internal_pos_.SetLanePos(object_->pos_.GetTrackId(),
-                             object_->pos_.GetLaneId(),
-                             object_->pos_.GetS(),
-                             object_->pos_.GetOffset(),
+    object_->GetDrivePosition().MoveAlongS(ds, 0.0, -1.0, false, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true, target_->layer_);
+    internal_pos_.SetLanePos(object_->GetDrivePosition().GetTrackId(),
+                             object_->GetDrivePosition().GetLaneId(),
+                             object_->GetDrivePosition().GetS(),
+                             object_->GetDrivePosition().GetOffset(),
                              IDX_UNDEFINED,
                              target_->layer_);
 
-    if (object_->pos_.GetRoute())
+    if (object_->GetDrivePosition().GetRoute())
     {
         // Check whether updated position still is on the route, i.e. same road ID, or not
-        if (!object_->pos_.IsInJunction() && !internal_pos_.GetTrackId() && object_->pos_.GetTrackId() != internal_pos_.GetTrackId())
+        if (!object_->GetDrivePosition().IsInJunction() && !internal_pos_.GetTrackId() &&
+            object_->GetDrivePosition().GetTrackId() != internal_pos_.GetTrackId())
         {
             LOG_WARN("Warning/Info: LaneChangeAction moved away from route (track id {} -> track id {}), disabling route",
-                     object_->pos_.GetTrackId(),
+                     object_->GetDrivePosition().GetTrackId(),
                      internal_pos_.GetTrackId());
-            object_->pos_.SetRoute(nullptr);
+            object_->GetDrivePosition().SetRoute(nullptr);
             object_->dirty_.SetBits(Object::DirtyBit::ROUTE);
         }
     }
@@ -1046,21 +1088,24 @@ void LatLaneChangeAction::Step(double simTime, double dt)
         // Lane change complete - update current lane layer to target lane layer
         object_->SetCurrentLaneLayer(target_->layer_);
         OSCAction::End();
-        object_->pos_.SetHeadingRelativeRoadDirection(0);
+        object_->GetDrivePosition().SetHeadingRelativeRoadDirection(0);
     }
     else
     {
-        object_->pos_.SetHeadingRelativeRoadDirection((IsAngleForward(object_->pos_.GetHRelative()) ? 1 : -1) * SIGN(object_->pos_.GetLaneId()) *
-                                                      heading_agnostic_);
+        object_->GetDrivePosition().SetHeadingRelativeRoadDirection((IsAngleForward(object_->GetDrivePosition().GetHRelative()) ? 1 : -1) *
+                                                                    SIGN(object_->GetDrivePosition().GetLaneId()) * heading_agnostic_);
     }
 
-    if (!(object_->pos_.GetRoute() && object_->pos_.GetRoute()->IsValid()))
+    if (!(object_->GetDrivePosition().GetRoute() && object_->GetDrivePosition().GetRoute()->IsValid()))
     {
         // Attach object position to closest road and lane, look up via inertial coordinates
-        object_->pos_.XYZ2TrackPos(object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(), roadmanager::Position::PosMode::Z_ABS);
+        object_->GetDrivePosition().XYZ2TrackPos(object_->GetDrivePosition().GetX(),
+                                                 object_->GetDrivePosition().GetY(),
+                                                 object_->GetDrivePosition().GetZ(),
+                                                 roadmanager::Position::PosMode::Z_ABS);
     }
 
-    if (object_->pos_.GetStatusBitMask() & static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD))
+    if (object_->GetDrivePosition().GetStatusBitMask() & static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD))
     {
         OSCAction::End();
     }
@@ -1097,12 +1142,12 @@ void LatLaneOffsetAction::Start(double simTime)
 
     if (target_->type_ == Target::Type::ABSOLUTE_OFFSET)
     {
-        transition_.SetTargetVal(SIGN(object_->pos_.GetLaneId()) * target_->value_);
+        transition_.SetTargetVal(SIGN(object_->GetDrivePosition().GetLaneId()) * target_->value_);
     }
     else if (target_->type_ == Target::Type::RELATIVE_OFFSET)
     {
         // Register what lane action object belongs to
-        int lane_id = object_->pos_.GetLaneId();
+        int lane_id = object_->GetDrivePosition().GetLaneId();
 
         // Find out target position based on the referred object
         roadmanager::Position refpos = (static_cast<TargetRelative*>(target_.get()))->object_->pos_;
@@ -1112,15 +1157,17 @@ void LatLaneOffsetAction::Start(double simTime)
         refpos.ForceLaneId(lane_id, object_->GetLaneLayerPreference());
 
         // Target lane offset = target t value - t value of current lane (which is current t - current offset)
-        transition_.SetTargetVal(SIGN(object_->pos_.GetLaneId()) * (refpos.GetT() - (object_->pos_.GetT() - object_->pos_.GetOffset())));
+        transition_.SetTargetVal(SIGN(object_->GetDrivePosition().GetLaneId()) *
+                                 (refpos.GetT() - (object_->GetDrivePosition().GetT() - object_->GetDrivePosition().GetOffset())));
     }
 
-    transition_.SetStartVal(SIGN(object_->pos_.GetLaneId()) * object_->pos_.GetOffset());
+    transition_.SetStartVal(SIGN(object_->GetDrivePosition().GetLaneId()) * object_->GetDrivePosition().GetOffset());
     transition_.SetParamTargetVal(transition_.GetTargetParamValByPrimPrimPeak(max_lateral_acc_));
 }
 
 void LatLaneOffsetAction::Step(double simTime, double dt)
 {
+    DrivePointUpdate drive_point_update(object_, 0.0);
     (void)simTime;
     (void)dt;
     double offset_agnostic;
@@ -1141,27 +1188,27 @@ void LatLaneOffsetAction::Step(double simTime, double dt)
          SIGN(offset_agnostic - transition_.GetTargetVal()) != SIGN(transition_.GetStartVal() - transition_.GetTargetVal())))
     {
         OSCAction::End();
-        object_->pos_.SetLanePos(object_->pos_.GetTrackId(),
-                                 object_->pos_.GetLaneId(),
-                                 object_->pos_.GetS(),
-                                 SIGN(object_->pos_.GetLaneId()) * transition_.GetTargetVal(),
-                                 IDX_UNDEFINED,
-                                 object_->GetLaneLayerPreference());
-        object_->pos_.SetHeadingRelativeRoadDirection(0);
+        object_->GetDrivePosition().SetLanePos(object_->GetDrivePosition().GetTrackId(),
+                                               object_->GetDrivePosition().GetLaneId(),
+                                               object_->GetDrivePosition().GetS(),
+                                               SIGN(object_->GetDrivePosition().GetLaneId()) * transition_.GetTargetVal(),
+                                               IDX_UNDEFINED,
+                                               object_->GetLaneLayerPreference());
+        object_->GetDrivePosition().SetHeadingRelativeRoadDirection(0);
     }
     else
     {
-        object_->pos_.SetLanePos(object_->pos_.GetTrackId(),
-                                 object_->pos_.GetLaneId(),
-                                 object_->pos_.GetS(),
-                                 SIGN(object_->pos_.GetLaneId()) * offset_agnostic,
-                                 IDX_UNDEFINED,
-                                 object_->GetLaneLayerPreference());
+        object_->GetDrivePosition().SetLanePos(object_->GetDrivePosition().GetTrackId(),
+                                               object_->GetDrivePosition().GetLaneId(),
+                                               object_->GetDrivePosition().GetS(),
+                                               SIGN(object_->GetDrivePosition().GetLaneId()) * offset_agnostic,
+                                               IDX_UNDEFINED,
+                                               object_->GetLaneLayerPreference());
 
         // Convert rate (lateral-movment/time) to lateral-movement/long-movement
         double angle = atan(transition_.EvaluatePrim() / AVOID_ZERO(object_->GetSpeed()));
-        object_->pos_.SetHeadingRelativeRoadDirection((IsAngleForward(object_->pos_.GetHRelative()) ? 1 : -1) * SIGN(object_->pos_.GetLaneId()) *
-                                                      angle);
+        object_->GetDrivePosition().SetHeadingRelativeRoadDirection((IsAngleForward(object_->GetDrivePosition().GetHRelative()) ? 1 : -1) *
+                                                                    SIGN(object_->GetDrivePosition().GetLaneId()) * angle);
     }
 
     object_->dirty_.SetBits(Object::DirtyBit::LATERAL);
@@ -1933,7 +1980,8 @@ void LongDistanceAction::Step(double simTime, double dt)
     if (dynamics_.max_acceleration_ >= LARGE_NUMBER && dynamics_.max_deceleration_ >= LARGE_NUMBER)
     {
         // Set position according to distance and copy speed of target vehicle
-        object_->pos_.MoveAlongS(distance_diff);
+        object_->GetDrivePosition().MoveAlongS(distance_diff);
+        object_->UpdateReferencePosition(dt);
         object_->SetSpeed(target_object_->speed_);
     }
     else
@@ -2082,8 +2130,8 @@ void LatDistanceAction::GetDesiredRoadPos(const double distance_error, roadmanag
     if (cs_ == roadmanager::CoordinateSystem::CS_ROAD)
     {
         // How much we need to move to reach the target distance in the direction of the road
-        shift_x = -std::sin(object_->pos_.GetRoadH()) * distance_error;
-        shift_y = std::cos(object_->pos_.GetRoadH()) * distance_error;
+        shift_x = -std::sin(object_->GetDrivePosition().GetRoadH()) * distance_error;
+        shift_y = std::cos(object_->GetDrivePosition().GetRoadH()) * distance_error;
     }
     else
     {
@@ -2091,9 +2139,9 @@ void LatDistanceAction::GetDesiredRoadPos(const double distance_error, roadmanag
     }
 
     // Add the necessary shift to the current position
-    double target_x = object_->pos_.GetX() + shift_x;
-    double target_y = object_->pos_.GetY() + shift_y;
-    internal_pos.XYZ2TrackPos(target_x, target_y, object_->pos_.GetZ());
+    double target_x = object_->GetDrivePosition().GetX() + shift_x;
+    double target_y = object_->GetDrivePosition().GetY() + shift_y;
+    internal_pos.XYZ2TrackPos(target_x, target_y, object_->GetDrivePosition().GetZ());
 }
 
 void LatDistanceAction::GetDistanceError(roadmanager::Position& pos1, roadmanager::Position& pos2, double& distance_error)
@@ -2116,7 +2164,7 @@ void LatDistanceAction::GetDistanceError(roadmanager::Position& pos1, roadmanage
         return;
     }
 
-    bool facing_forward = IsAngleForward(object_->pos_.GetHRelative());
+    bool facing_forward = IsAngleForward(object_->GetDrivePosition().GetHRelative());
     distance_error      = 0.0;
 
     // Both cars facing same direction, either along the driving direction or against it
@@ -2132,6 +2180,7 @@ void LatDistanceAction::GetDistanceError(roadmanager::Position& pos1, roadmanage
 
 void LatDistanceAction::Step(double simTime, double dt)
 {
+    DrivePointUpdate drive_point_update(object_, dt);
     (void)simTime;
     if (object_->IsControllerModeOnDomains(ControlOperationMode::MODE_OVERRIDE, static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)))
     {
@@ -2151,8 +2200,8 @@ void LatDistanceAction::Step(double simTime, double dt)
         RotateVec2D(0.0, distance_, target_object_->pos_.GetH(), target_obj_offset[0], target_obj_offset[1]);
 
         // calculate target position, i.e. aiming point
-        ProjectPointOnLine2D(object_->pos_.GetX(),
-                             object_->pos_.GetY(),
+        ProjectPointOnLine2D(object_->GetDrivePosition().GetX(),
+                             object_->GetDrivePosition().GetY(),
                              target_object_->pos_.GetX() + target_obj_offset[0],
                              target_object_->pos_.GetY() + target_obj_offset[1],
                              target_object_->pos_.GetX() + target_obj_offset[0] + target_obj_x_axis[0],
@@ -2160,7 +2209,7 @@ void LatDistanceAction::Step(double simTime, double dt)
                              target_pos[0],
                              target_pos[1]);
 
-        double delta[2] = {target_pos[0] - object_->pos_.GetX(), target_pos[1] - object_->pos_.GetY()};
+        double delta[2] = {target_pos[0] - object_->GetDrivePosition().GetX(), target_pos[1] - object_->GetDrivePosition().GetY()};
         double dist     = GetLengthOfVector2D(delta[0], delta[1]);
 
         if (dynamics_.max_acceleration_ >= LARGE_NUMBER)
@@ -2170,13 +2219,13 @@ void LatDistanceAction::Step(double simTime, double dt)
             {
                 // given speed, some distance remains for moving forward
                 double dist_remains = fabs(object_->GetSpeed()) * dt - dist;
-                object_->pos_.SetInertiaPos(target_pos[0] + target_obj_x_axis[0] * dist_remains,
-                                            target_pos[1] + target_obj_x_axis[1] * dist_remains,
-                                            target_object_->pos_.GetH());
+                object_->GetDrivePosition().SetInertiaPos(target_pos[0] + target_obj_x_axis[0] * dist_remains,
+                                                          target_pos[1] + target_obj_x_axis[1] * dist_remains,
+                                                          target_object_->pos_.GetH());
             }
             else
             {
-                object_->pos_.SetInertiaPos(target_pos[0], target_pos[1], target_object_->pos_.GetH());
+                object_->GetDrivePosition().SetInertiaPos(target_pos[0], target_pos[1], target_object_->pos_.GetH());
             }
         }
         else
@@ -2188,9 +2237,9 @@ void LatDistanceAction::Step(double simTime, double dt)
             {
                 // on parallel line at specified distance, just move along
                 RotateVec2D(1.0, 0.0, target_object_->pos_.GetH(), new_pos[0], new_pos[1]);
-                object_->pos_.SetInertiaPos(object_->pos_.GetX() + new_pos[0] * step_len,
-                                            object_->pos_.GetY() + new_pos[1] * step_len,
-                                            target_object_->pos_.GetH());
+                object_->GetDrivePosition().SetInertiaPos(object_->GetDrivePosition().GetX() + new_pos[0] * step_len,
+                                                          object_->GetDrivePosition().GetY() + new_pos[1] * step_len,
+                                                          target_object_->pos_.GetH());
             }
             else
             {
@@ -2207,23 +2256,23 @@ void LatDistanceAction::Step(double simTime, double dt)
                         {target_object_->pos_.GetX() + target_obj_offset[0], target_object_->pos_.GetY() + target_obj_offset[1]},
                         {target_object_->pos_.GetX() + target_obj_offset[0] + target_obj_x_axis[0],
                          target_object_->pos_.GetY() + target_obj_offset[1] + target_obj_x_axis[1]},
-                        {object_->pos_.GetX(), object_->pos_.GetY()},
+                        {object_->GetDrivePosition().GetX(), object_->GetDrivePosition().GetY()},
                         step_len,
                         i0,
                         i1);
 
                     // pick point most aligned with current heading
-                    double h0 = GetAngleOfVector(i0[0] - object_->pos_.GetX(), i0[1] - object_->pos_.GetY());
-                    double h1 = GetAngleOfVector(i1[0] - object_->pos_.GetX(), i1[1] - object_->pos_.GetY());
+                    double h0 = GetAngleOfVector(i0[0] - object_->GetDrivePosition().GetX(), i0[1] - object_->GetDrivePosition().GetY());
+                    double h1 = GetAngleOfVector(i1[0] - object_->GetDrivePosition().GetX(), i1[1] - object_->GetDrivePosition().GetY());
                     if (GetAbsAngleDifference(h0, target_object_->pos_.GetH()) < GetAbsAngleDifference(h1, target_object_->pos_.GetH()))
                     {
                         // pick first intersection
-                        object_->pos_.SetInertiaPos(i0[0], i0[1], h0);
+                        object_->GetDrivePosition().SetInertiaPos(i0[0], i0[1], h0);
                     }
                     else
                     {
                         // pick second intersection
-                        object_->pos_.SetInertiaPos(i1[0], i1[1], h1);
+                        object_->GetDrivePosition().SetInertiaPos(i1[0], i1[1], h1);
                     }
                 }
                 else
@@ -2233,16 +2282,17 @@ void LatDistanceAction::Step(double simTime, double dt)
                     if (dist > turn_radius - SMALL_NUMBER)
                     {
                         // if distance to target point is large, move straight towards the target while limit heading change rate
-                        double target_heading = atan2(target_pos[1] - object_->pos_.GetY(), target_pos[0] - object_->pos_.GetX());
-                        dh                    = ABS_LIMIT(GetAngleDifference(target_heading, object_->pos_.GetH()), dh_max);
+                        double target_heading =
+                            atan2(target_pos[1] - object_->GetDrivePosition().GetY(), target_pos[0] - object_->GetDrivePosition().GetX());
+                        dh = ABS_LIMIT(GetAngleDifference(target_heading, object_->GetDrivePosition().GetH()), dh_max);
                     }
                     else
                     {
                         // within turning radius, align heading with target vehicle while moving towards the target distance line
                         // calculate new driving direction (heading) based on distance and heading alignment with target line
-                        double h_diff_delta = GetAngleDifference(GetAngleOfVector(delta[0], delta[1]), object_->pos_.GetH());
+                        double h_diff_delta = GetAngleDifference(GetAngleOfVector(delta[0], delta[1]), object_->GetDrivePosition().GetH());
                         double h_diff_heading =
-                            GetAngleDifference(GetAngleOfVector(target_obj_x_axis[0], target_obj_x_axis[1]), object_->pos_.GetH());
+                            GetAngleDifference(GetAngleOfVector(target_obj_x_axis[0], target_obj_x_axis[1]), object_->GetDrivePosition().GetH());
 
                         double d_angle = step_len / turn_radius;  // angle in radians repersenting the distance along the segment
 
@@ -2256,11 +2306,11 @@ void LatDistanceAction::Step(double simTime, double dt)
                         // calculate delta heading based on distance to target point and heading alignment
                         dh = ABS_LIMIT((w)*h_diff_delta + (1 - w) * h_diff_heading, dh_max);
                     }
-                    double new_heading = GetAngleInInterval2PI(object_->pos_.GetH() + dh);
-                    new_pos[0]         = object_->pos_.GetX() + cos(new_heading) * step_len;
-                    new_pos[1]         = object_->pos_.GetY() + sin(new_heading) * step_len;
+                    double new_heading = GetAngleInInterval2PI(object_->GetDrivePosition().GetH() + dh);
+                    new_pos[0]         = object_->GetDrivePosition().GetX() + cos(new_heading) * step_len;
+                    new_pos[1]         = object_->GetDrivePosition().GetY() + sin(new_heading) * step_len;
 
-                    object_->pos_.SetInertiaPos(new_pos[0], new_pos[1], new_heading);
+                    object_->GetDrivePosition().SetInertiaPos(new_pos[0], new_pos[1], new_heading);
                 }
             }
         }
@@ -2282,27 +2332,27 @@ void LatDistanceAction::Step(double simTime, double dt)
                     spring_.SetTension(0.4 * dynamics_.max_acceleration_);  // Adjust spring tension based on max acceleration
                     move_state_ = MoveState::MOVE_DYNAMIC;
                 }
-                old_x_ = object_->pos_.GetX();
-                old_y_ = object_->pos_.GetY();
+                old_x_ = object_->GetDrivePosition().GetX();
+                old_y_ = object_->GetDrivePosition().GetY();
             }
             break;
             case MoveState::MOVE_RIGID:
             {
                 double distance_error;
-                GetDistanceError(object_->pos_, target_object_->pos_, distance_error);
+                GetDistanceError(object_->GetDrivePosition(), target_object_->pos_, distance_error);
 
                 roadmanager::Position desired_pos;
                 GetDesiredRoadPos(distance_error, desired_pos);
-                object_->pos_.SetLanePos(desired_pos.GetTrackId(),
-                                         desired_pos.GetLaneId(),
-                                         desired_pos.GetS(),
-                                         desired_pos.GetOffset(),
-                                         IDX_UNDEFINED,
-                                         object_->GetLaneLayerPreference());
+                object_->GetDrivePosition().SetLanePos(desired_pos.GetTrackId(),
+                                                       desired_pos.GetLaneId(),
+                                                       desired_pos.GetS(),
+                                                       desired_pos.GetOffset(),
+                                                       IDX_UNDEFINED,
+                                                       object_->GetLaneLayerPreference());
                 object_->SetSpeed(object_->GetSpeed());
                 if (!continuous_)
                 {
-                    object_->pos_.SetHeading(atan2(desired_pos.GetY() - old_y_, desired_pos.GetX() - old_x_));
+                    object_->GetDrivePosition().SetHeading(atan2(desired_pos.GetY() - old_y_, desired_pos.GetX() - old_x_));
 
                     if (std::abs(distance_error) < LATERAL_DISTANCE_THRESHOLD)
                     {
@@ -2313,10 +2363,10 @@ void LatDistanceAction::Step(double simTime, double dt)
                 }
                 else
                 {
-                    object_->pos_.SetHeading(atan2(desired_pos.GetY() - old_y_, desired_pos.GetX() - old_x_));
+                    object_->GetDrivePosition().SetHeading(atan2(desired_pos.GetY() - old_y_, desired_pos.GetX() - old_x_));
                 }
-                old_x_ = object_->pos_.GetX();
-                old_y_ = object_->pos_.GetY();
+                old_x_ = object_->GetDrivePosition().GetX();
+                old_y_ = object_->GetDrivePosition().GetY();
                 object_->dirty_.SetBits(Object::DirtyBit::LATERAL);
             }
             break;
@@ -2324,7 +2374,7 @@ void LatDistanceAction::Step(double simTime, double dt)
             {
                 // Find desired position
                 double distance_error;
-                GetDistanceError(object_->pos_, target_object_->pos_, distance_error);
+                GetDistanceError(object_->GetDrivePosition(), target_object_->pos_, distance_error);
 
                 if (LARGE_NUMBER != dynamics_.max_acceleration_)
                 {
@@ -2374,20 +2424,21 @@ void LatDistanceAction::Step(double simTime, double dt)
                 double long_vel = sqrt(pow(object_->GetSpeed(), 2) - pow(lat_vel_, 2));
 
                 object_->MoveAlongS(long_vel * dt);
-                object_->pos_.SetLanePos(object_->pos_.GetTrackId(),
-                                         object_->pos_.GetLaneId(),
-                                         object_->pos_.GetS(),
-                                         object_->pos_.GetOffset() + lat_vel_ * dt,
-                                         IDX_UNDEFINED,
-                                         object_->GetLaneLayerPreference());
+                object_->GetDrivePosition().SetLanePos(object_->GetDrivePosition().GetTrackId(),
+                                                       object_->GetDrivePosition().GetLaneId(),
+                                                       object_->GetDrivePosition().GetS(),
+                                                       object_->GetDrivePosition().GetOffset() + lat_vel_ * dt,
+                                                       IDX_UNDEFINED,
+                                                       object_->GetLaneLayerPreference());
 
-                object_->pos_.SetHeading(atan2(object_->pos_.GetY() - old_y_, object_->pos_.GetX() - old_x_));
+                object_->GetDrivePosition().SetHeading(
+                    atan2(object_->GetDrivePosition().GetY() - old_y_, object_->GetDrivePosition().GetX() - old_x_));
 
                 object_->SetSpeed(object_->GetSpeed());
                 object_->dirty_.SetBits(Object::DirtyBit::LONGITUDINAL | Object::DirtyBit::LATERAL | Object::DirtyBit::SPEED);
 
-                old_x_ = object_->pos_.GetX();
-                old_y_ = object_->pos_.GetY();
+                old_x_ = object_->GetDrivePosition().GetX();
+                old_y_ = object_->GetDrivePosition().GetY();
             }
         }
     }
@@ -2455,7 +2506,7 @@ void TeleportAction::Start(double simTime)
             object_->SetSpeed(object_->ghost_Ego_->GetSpeed());
 
             // simply duplicate the position of host/ego vehicle
-            object_->pos_.Duplicate(object_->ghost_Ego_->pos_);
+            object_->GetDrivePosition().Duplicate(object_->ghost_Ego_->GetDrivePosition());
         }
         else
         {
@@ -2473,11 +2524,13 @@ void TeleportAction::Start(double simTime)
         }
 
         // consider any assigned route for relative positions
-        position_.CopyRoute(object_->pos_);
+        position_.CopyRoute(object_->GetDrivePosition());
 
         // do the relocation
-        object_->pos_.TeleportTo(&position_);
+        object_->GetDrivePosition().TeleportTo(&position_);
     }
+
+    object_->UpdateReferencePosition();
 
     if (!object_->TowVehicle() && object_->TrailerVehicle())
     {
@@ -2744,29 +2797,32 @@ void SynchronizeAction::Step(double simTime, double dt)
     roadmanager::PositionDiff diff;
 
     int retval = -1;
-    if (master_object_->pos_.GetTrajectory())
+    if (master_object_->GetDrivePosition().GetTrajectory())
     {
-        retval = master_object_->pos_.Distance(&target_position_master_,
-                                               roadmanager::CoordinateSystem::CS_TRAJECTORY,
-                                               roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
-                                               masterDist);
+        retval = master_object_->GetDrivePosition().Distance(&target_position_master_,
+                                                             roadmanager::CoordinateSystem::CS_TRAJECTORY,
+                                                             roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
+                                                             masterDist);
         distance_direction_master =
-            SIGN(masterDist) *
-            (IsAngleForward(GetAngleDifference(master_object_->pos_.GetTrajectory()->GetHTrue(), master_object_->pos_.GetH())) ? 1 : -1);
+            SIGN(masterDist) * (IsAngleForward(GetAngleDifference(master_object_->GetDrivePosition().GetTrajectory()->GetHTrue(),
+                                                                  master_object_->GetDrivePosition().GetH()))
+                                    ? 1
+                                    : -1);
         masterDist = fabs(masterDist);
     }
 
     if (retval == -1 || masterDist > LARGE_NUMBER - SMALL_NUMBER)
     {
-        if (!master_object_->pos_.Delta(&target_position_master_, diff))
+        if (!master_object_->GetDrivePosition().Delta(&target_position_master_, diff))
         {
             // No road network path between master vehicle and master target pos - using world coordinate distance
-            double distance_vector[2]     = {target_position_master_.GetX() - master_object_->pos_.GetX(),
-                                             target_position_master_.GetY() - master_object_->pos_.GetY()};
+            double distance_vector[2]     = {target_position_master_.GetX() - master_object_->GetDrivePosition().GetX(),
+                                             target_position_master_.GetY() - master_object_->GetDrivePosition().GetY()};
             diff.ds                       = GetLengthOfVector2D(distance_vector[0], distance_vector[1]);
             masterDist                    = fabs(diff.ds);
             double heading_to_destination = GetAngleOfVector(distance_vector[0], distance_vector[1]);
-            distance_direction_master     = IsAngleForward(GetAngleDifference(heading_to_destination, master_object_->pos_.GetH())) ? 1 : -1;
+            distance_direction_master =
+                IsAngleForward(GetAngleDifference(heading_to_destination, master_object_->GetDrivePosition().GetH())) ? 1 : -1;
         }
         else
         {
@@ -2776,21 +2832,22 @@ void SynchronizeAction::Step(double simTime, double dt)
     }
 
     retval = -1;
-    if (object_->pos_.GetTrajectory())
+    if (object_->GetDrivePosition().GetTrajectory())
     {
-        retval = object_->pos_.Distance(&target_position_,
-                                        roadmanager::CoordinateSystem::CS_TRAJECTORY,
-                                        roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
-                                        dist);
+        retval = object_->GetDrivePosition().Distance(&target_position_,
+                                                      roadmanager::CoordinateSystem::CS_TRAJECTORY,
+                                                      roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
+                                                      dist);
         dist   = fabs(dist);
     }
 
     if (retval == -1 || dist > LARGE_NUMBER - SMALL_NUMBER)
     {
-        if (!object_->pos_.Delta(&target_position_, diff))
+        if (!object_->GetDrivePosition().Delta(&target_position_, diff))
         {
             // No road network path between action vehicle and action target pos - using world coordinate distance
-            double distance_vector[2] = {target_position_.GetX() - object_->pos_.GetX(), target_position_.GetY() - object_->pos_.GetY()};
+            double distance_vector[2] = {target_position_.GetX() - object_->GetDrivePosition().GetX(),
+                                         target_position_.GetY() - object_->GetDrivePosition().GetY()};
             diff.ds                   = GetLengthOfVector2D(distance_vector[0], distance_vector[1]);
             dist                      = fabs(diff.ds);
         }
@@ -2832,7 +2889,7 @@ void SynchronizeAction::Step(double simTime, double dt)
     double masterTimeToDest = LARGE_NUMBER;
 
     // project speed on road s-axis
-    double master_speed = SIGN(master_object_->GetSpeed()) * distance_direction_master * fabs(master_object_->pos_.GetVelS());
+    double master_speed = SIGN(master_object_->GetSpeed()) * distance_direction_master * fabs(master_object_->GetDrivePosition().GetVelS());
 
     if (master_speed > SMALL_NUMBER)
     {
@@ -3042,7 +3099,7 @@ void SynchronizeAction::Step(double simTime, double dt)
             double t = masterTimeToDest;
 
             // project speed on road s-axis
-            double v0 = SIGN(object_->GetSpeed()) * abs(object_->pos_.GetVelS());
+            double v0 = SIGN(object_->GetSpeed()) * abs(object_->GetDrivePosition().GetVelS());
             double v1 = final_speed_->GetValue();
 
             // Calculate both solutions from the quadratic equation

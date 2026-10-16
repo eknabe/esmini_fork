@@ -35,6 +35,41 @@ namespace fs = std::experimental::filesystem;
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+TEST(DrivePointAPITest, ReportsAndRecordsEntityOrigin)
+{
+    const char* args[] = {"--osc", "../../../resources/xosc/follow_trajectory_by_front_axle.xosc", "--headless", "--record", "drive_point_test.dat"};
+    ASSERT_EQ(SE_InitWithArgs(sizeof(args) / sizeof(char*), args), 0);
+    SE_ScenarioObjectState state{};
+    EXPECT_EQ(SE_GetObjectState(0, &state), 0);
+    EXPECT_NEAR(state.x + 2.98 * cos(state.h), 10.0, 1e-6);
+    EXPECT_NEAR(state.y + 2.98 * sin(state.h), -3.0, 1e-6);
+    EXPECT_NEAR(state.centerOffsetX, 1.4, 1e-6);
+    const SE_ScenarioObjectState initial_state = state;
+    for (int i = 0; i < 60; ++i)
+    {
+        const double previous_x = state.x;
+        const double previous_y = state.y;
+        EXPECT_EQ(SE_StepDT(0.1), 0);
+        EXPECT_EQ(SE_GetObjectState(0, &state), 0);
+        double vx, vy, vz;
+        EXPECT_EQ(SE_GetObjectVelocityGlobalXYZ(0, &vx, &vy, &vz), 0);
+        EXPECT_NEAR(vx, (state.x - previous_x) / 0.1, 1e-6);
+        EXPECT_NEAR(vy, (state.y - previous_y) / 0.1, 1e-6);
+    }
+    SE_Close();
+
+    {
+        scenarioengine::Replay replay("drive_point_test.dat", true);
+        const auto             entry = replay.GetReplayEntryAtTimeBinary(0, 0.0);
+        EXPECT_NEAR(entry.state.pos.x, initial_state.x, 1e-6);
+        EXPECT_NEAR(entry.state.pos.y, initial_state.y, 1e-6);
+        const auto& offsets = replay.objects_timeline_.at(0).refpoint_x_offset_.values;
+        ASSERT_EQ(offsets.size(), 1);
+        EXPECT_DOUBLE_EQ(offsets.front().second, 0.0);
+    }
+    EXPECT_EQ(std::remove("drive_point_test.dat"), 0);
+}
+
 class GetNumberOfObjectsTest : public ::testing::TestWithParam<std::tuple<std::string, int>>
 {
 };

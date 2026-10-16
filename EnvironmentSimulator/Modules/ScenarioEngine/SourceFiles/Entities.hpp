@@ -21,6 +21,7 @@
 #include "OSCProperties.hpp"
 #include "Controller.hpp"
 #include <algorithm>
+#include <array>
 
 namespace scenarioengine
 {
@@ -786,12 +787,17 @@ namespace scenarioengine
 
         void SetRefpointXOffset(double x_offset)
         {
-            refpoint_x_offset_ = x_offset;
+            refpoint_x_offset_    = x_offset;
+            drive_position_valid_ = false;
         }
         double GetRefpointXOffset() const
         {
             return refpoint_x_offset_;
         }
+
+        // Scenario motion acts on the drive point; pos_ always describes the entity origin.
+        roadmanager::Position& GetDrivePosition();
+        void                   UpdateReferencePosition(double dt = 0.0);
 
         void SetOSIIndex(id_t osi_index)
         {
@@ -841,6 +847,9 @@ namespace scenarioengine
         }
 
     private:
+        roadmanager::Position    drive_position_;
+        std::array<double, 6>    reference_pose_{};
+        bool                     drive_position_valid_ = false;
         bool                     is_active_;
         std::string              model3d_full_path_;
         std::string              color_;

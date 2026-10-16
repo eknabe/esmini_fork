@@ -32,6 +32,239 @@ static void scenario_step(ScenarioEngine* scenario_engine, double dt)
     DirtyBits::SetReadBack();
 }
 
+class DrivePointTest : public testing::TestWithParam<double>
+{
+protected:
+    void LoadScenario(pugi::xml_document& doc, bool trajectory)
+    {
+        ASSERT_TRUE(doc.load_string(R"(
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="3" date="2026-10-16T00:00:00" description="Drive point" author="esmini"/>
+  <ParameterDeclarations/>
+  <CatalogLocations/>
+  <RoadNetwork><LogicFile filepath="../../../resources/xodr/straight_500m.xodr"/></RoadNetwork>
+  <Entities><ScenarioObject name="Car">
+    <Vehicle name="car" vehicleCategory="car">
+      <BoundingBox><Center x="1.4" y="0" z="0.75"/><Dimensions width="2" length="5" height="1.5"/></BoundingBox>
+      <Performance maxSpeed="100" maxDeceleration="10" maxAcceleration="10"/>
+      <Axles>
+        <FrontAxle maxSteering="0.5" wheelDiameter="0.8" trackWidth="1.68" positionX="3" positionZ="0.4"/>
+        <RearAxle maxSteering="0" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+      </Axles>
+      <Properties><Property name="refpoint_x_offset" value="8"/></Properties>
+    </Vehicle>
+  </ScenarioObject></Entities>
+  <Storyboard><Init><Actions><Private entityRef="Car">
+    <PrivateAction><TeleportAction><Position><WorldPosition x="10" y="-10" h="-1.2"/></Position></TeleportAction></PrivateAction>
+    <PrivateAction><LongitudinalAction><SpeedAction>
+      <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+      <SpeedActionTarget><AbsoluteTargetSpeed value="1"/></SpeedActionTarget>
+    </SpeedAction></LongitudinalAction></PrivateAction>
+    <PrivateAction><RoutingAction><FollowTrajectoryAction>
+      <Trajectory name="circle" closed="false"><Shape>
+        <Clothoid curvature="0.1" curvatureDot="0" length="20">
+          <Position><WorldPosition x="10" y="-10" h="-1.2"/></Position>
+        </Clothoid>
+      </Shape></Trajectory>
+      <TimeReference><None/></TimeReference><TrajectoryFollowingMode followingMode="position"/>
+    </FollowTrajectoryAction></RoutingAction></PrivateAction>
+  </Private></Actions></Init><StopTrigger/></Storyboard>
+</OpenSCENARIO>)"));
+        auto root = doc.child("OpenSCENARIO");
+        root.child("Entities").child("ScenarioObject").child("Vehicle").child("Properties").child("Property").attribute("value") =
+            std::to_string(GetParam()).c_str();
+        if (!trajectory)
+        {
+            auto actions = root.child("Storyboard").child("Init").child("Actions").child("Private");
+            actions.remove_child(actions.last_child());
+            auto position = actions.child("PrivateAction").child("TeleportAction").child("Position");
+            position.remove_child("WorldPosition");
+            auto lane                       = position.append_child("LanePosition");
+            lane.append_attribute("roadId") = "1";
+            lane.append_attribute("laneId") = "-1";
+            lane.append_attribute("s")      = "100";
+            lane.append_attribute("offset") = "0.25";
+        }
+    }
+
+    void CheckOffset(Object* object)
+    {
+        const Position& drive = object->GetDrivePosition();
+        EXPECT_NEAR(drive.GetX(), object->pos_.GetX() + GetParam() * cos(object->pos_.GetH()) * cos(object->pos_.GetP()), 1e-8);
+        EXPECT_NEAR(drive.GetY(), object->pos_.GetY() + GetParam() * sin(object->pos_.GetH()) * cos(object->pos_.GetP()), 1e-8);
+        EXPECT_NEAR(drive.GetZ(), object->pos_.GetZ() - GetParam() * sin(object->pos_.GetP()), 1e-8);
+        EXPECT_NEAR(object->boundingbox_.center_.x_, 1.4, 1e-6);
+    }
+};
+
+TEST_P(DrivePointTest, ClothoidAndReportedOrigin)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    EXPECT_NEAR(object->pos_.GetX(), 10.0 - GetParam() * cos(-1.2), 1e-6);
+    EXPECT_NEAR(object->pos_.GetY(), -10.0 - GetParam() * sin(-1.2), 1e-6);
+
+    double previous_x = object->pos_.GetX();
+    double previous_y = object->pos_.GetY();
+    for (int i = 0; i < 101; ++i)
+    {
+        CheckOffset(object);
+        const double    s     = engine.getSimulationTime();
+        const Position& drive = object->GetDrivePosition();
+        EXPECT_NEAR(drive.GetX(), 10.0 + (sin(-1.2 + 0.1 * s) - sin(-1.2)) / 0.1, 0.01);
+        EXPECT_NEAR(drive.GetY(), -10.0 - (cos(-1.2 + 0.1 * s) - cos(-1.2)) / 0.1, 0.01);
+        EXPECT_NEAR(object->pos_.GetH(), drive.GetH(), 1e-8);
+        if (i > 0)
+        {
+            EXPECT_NEAR(object->pos_.GetVelX(), (object->pos_.GetX() - previous_x) / 0.1, 1e-8);
+            EXPECT_NEAR(object->pos_.GetVelY(), (object->pos_.GetY() - previous_y) / 0.1, 1e-8);
+        }
+        previous_x = object->pos_.GetX();
+        previous_y = object->pos_.GetY();
+        scenario_step(&engine, 0.1);
+    }
+}
+
+TEST_P(DrivePointTest, DefaultControllerAndExternalOriginUpdate)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, false);
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 101; ++i)
+    {
+        CheckOffset(object);
+        EXPECT_NEAR(object->GetDrivePosition().GetS(), 100.0 + engine.getSimulationTime(), 1e-6);
+        EXPECT_NEAR(object->GetDrivePosition().GetOffset(), 0.25, 1e-6);
+        scenario_step(&engine, 0.1);
+    }
+
+    object->pos_.SetInertiaPos(150.0, -2.0, 4.0, 0.3, 0.2, 0.1);
+    CheckOffset(object);
+    object->UpdateReferencePosition();
+    EXPECT_NEAR(object->pos_.GetX(), 150.0, 1e-8);
+    EXPECT_NEAR(object->pos_.GetY(), -2.0, 1e-8);
+    EXPECT_NEAR(object->pos_.GetZ(), 4.0, 1e-8);
+}
+
+TEST_P(DrivePointTest, CurvedLaneFollowing)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, false);
+    auto root                                                          = doc.child("OpenSCENARIO");
+    root.child("RoadNetwork").child("LogicFile").attribute("filepath") = "../../../resources/xodr/curve_r100.xodr";
+    auto lane                                                          = root.child("Storyboard")
+                    .child("Init")
+                    .child("Actions")
+                    .child("Private")
+                    .child("PrivateAction")
+                    .child("TeleportAction")
+                    .child("Position")
+                    .child("LanePosition");
+    lane.attribute("roadId") = "0";
+    lane.attribute("s")      = "550";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 101; ++i)
+    {
+        CheckOffset(object);
+        EXPECT_NEAR(object->GetDrivePosition().GetOffset(), 0.25, 1e-6);
+        EXPECT_GT(object->GetDrivePosition().GetS(), 549.99);
+        EXPECT_LT(object->GetDrivePosition().GetS(), 561.0);
+        scenario_step(&engine, 0.1);
+    }
+}
+
+TEST_P(DrivePointTest, DrivePointReachesEndOfRoad)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, false);
+    auto lane = doc.child("OpenSCENARIO")
+                    .child("Storyboard")
+                    .child("Init")
+                    .child("Actions")
+                    .child("Private")
+                    .child("PrivateAction")
+                    .child("TeleportAction")
+                    .child("Position")
+                    .child("LanePosition");
+    lane.attribute("s") = "499.9";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 10; ++i)
+    {
+        scenario_step(&engine, 0.1);
+    }
+    CheckOffset(object);
+    EXPECT_TRUE(object->IsEndOfRoad());
+    EXPECT_NEAR(object->GetSpeed(), 0.0, 1e-8);
+}
+
+TEST_P(DrivePointTest, AssignedRouteUsesDrivePoint)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, false);
+    auto actions = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    auto route   = actions.append_child("PrivateAction").append_child("RoutingAction").append_child("AssignRouteAction").append_child("Route");
+    route.append_attribute("name")   = "route";
+    route.append_attribute("closed") = "false";
+    for (double s : {50.0, 200.0})
+    {
+        auto waypoint                              = route.append_child("Waypoint");
+        waypoint.append_attribute("routeStrategy") = "shortest";
+        auto lane                                  = waypoint.append_child("Position").append_child("LanePosition");
+        lane.append_attribute("roadId")            = "1";
+        lane.append_attribute("laneId")            = "-1";
+        lane.append_attribute("s")                 = s;
+        lane.append_attribute("offset")            = "0";
+    }
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 11; ++i)
+    {
+        CheckOffset(object);
+        ASSERT_NE(object->GetDrivePosition().GetRoute(), nullptr);
+        ASSERT_NE(object->pos_.GetRoute(), nullptr);
+        EXPECT_NEAR(object->GetDrivePosition().GetRouteS(), 50.0 + engine.getSimulationTime(), 1e-6);
+        EXPECT_NEAR(object->pos_.GetRouteS(), 50.0 + engine.getSimulationTime() - GetParam(), 1e-6);
+        scenario_step(&engine, 0.1);
+    }
+}
+
+TEST_P(DrivePointTest, RelativeEntityPositionsUseOrigin)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto root                                                                       = doc.child("OpenSCENARIO");
+    auto entities                                                                   = root.child("Entities");
+    auto other                                                                      = entities.append_copy(entities.child("ScenarioObject"));
+    other.attribute("name")                                                         = "Other";
+    other.child("Vehicle").child("Properties").child("Property").attribute("value") = "0";
+    auto actions                          = root.child("Storyboard").child("Init").child("Actions").append_child("Private");
+    actions.append_attribute("entityRef") = "Other";
+    auto relative =
+        actions.append_child("PrivateAction").append_child("TeleportAction").append_child("Position").append_child("RelativeObjectPosition");
+    relative.append_attribute("entityRef") = "Car";
+    relative.append_attribute("dx")        = "0";
+    relative.append_attribute("dy")        = "2";
+    relative.append_attribute("dz")        = "0";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* car    = engine.entities_.object_[0];
+    Object* target = engine.entities_.object_[1];
+    EXPECT_NEAR(target->pos_.GetX(), car->pos_.GetX() - 2.0 * sin(car->pos_.GetH()), 1e-6);
+    EXPECT_NEAR(target->pos_.GetY(), car->pos_.GetY() + 2.0 * cos(car->pos_.GetH()), 1e-6);
+}
+
+INSTANTIATE_TEST_SUITE_P(Offsets, DrivePointTest, testing::Values(0.0, 3.0, 8.0, -3.0));
+
 TEST(DistanceTest, CalcDistanceVariations)
 {
     double dist = 0.0;
