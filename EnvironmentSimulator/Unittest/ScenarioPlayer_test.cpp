@@ -13,6 +13,47 @@ using namespace scenarioengine;
 
 #include <osg/TriangleFunctor>
 
+TEST(DrivePointViewerTest, MarkerOffsetColorAndVisibility)
+{
+    const char*    args[] = {"esmini",
+                             "--osc",
+                             "../../../resources/xosc/follow_trajectory_by_front_axle.xosc",
+                             "--headless",
+                             "--window",
+                             "60",
+                             "60",
+                             "800",
+                             "400",
+                             "--bounding_boxes",
+                             "--disable_stdout"};
+    ScenarioPlayer player(sizeof(args) / sizeof(char*), const_cast<char**>(args));
+    ASSERT_EQ(player.Init(), 0);
+    ASSERT_EQ(player.viewer_->entities_.size(), 1u);
+    viewer::EntityModel* entity = player.viewer_->entities_[0];
+    ASSERT_TRUE(entity->drive_point_.valid());
+    EXPECT_EQ(entity->drive_point_->getNodeMask(), NodeMask::NODE_MASK_ENTITY_BB);
+    EXPECT_DOUBLE_EQ(entity->drive_point_->getPosition().x(), 2.98);
+    EXPECT_DOUBLE_EQ(entity->drive_point_->getPosition().y(), 0.0);
+    EXPECT_DOUBLE_EQ(entity->drive_point_->getPosition().z(), 0.0);
+    ASSERT_TRUE(entity->group_->containsNode(entity->drive_point_));
+    auto* geode = entity->drive_point_->getChild(0)->asGeode();
+    ASSERT_NE(geode, nullptr);
+    auto* marker = dynamic_cast<osg::ShapeDrawable*>(geode->getDrawable(0));
+    ASSERT_NE(marker, nullptr);
+    EXPECT_EQ(marker->getColor(), osg::Vec4(1.0f, 0.2f, 1.0f, 1.0f));
+    const auto* sphere = dynamic_cast<const osg::Sphere*>(marker->getShape());
+    ASSERT_NE(sphere, nullptr);
+    EXPECT_FLOAT_EQ(sphere->getRadius(), 0.2f);
+
+    for (double offset : {-3.0, 0.0, 8.0})
+    {
+        player.scenarioEngine->entities_.object_[0]->SetRefpointXOffset(offset);
+        player.Frame(0.0);
+        EXPECT_DOUBLE_EQ(entity->drive_point_->getPosition().x(), offset);
+        EXPECT_EQ(entity->drive_point_->getNodeMask(), offset == 0.0 ? NodeMask::NODE_MASK_NONE : NodeMask::NODE_MASK_ENTITY_BB);
+    }
+}
+
 TEST(RoadGeomTest, LaneHeightBoundaryBeforeRejectedCandidate)
 {
     ASSERT_TRUE(Position::LoadOpenDriveFromXMLString(R"(

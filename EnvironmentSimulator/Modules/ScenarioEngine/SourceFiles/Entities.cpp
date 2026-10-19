@@ -136,6 +136,8 @@ Position& Object::GetDrivePosition()
     const std::array<double, 6> pose = {pos_.GetX(), pos_.GetY(), pos_.GetZ(), pos_.GetH(), pos_.GetP(), pos_.GetR()};
     if (!drive_position_valid_ || pose != reference_pose_)
     {
+        reference_trajectory_  = nullptr;
+        reference_speed_scale_ = 1.0;
         // An external controller/API update locates the entity origin, not the drive point.
         drive_position_.Duplicate(pos_);
         drive_position_.SetTrajectory(pos_.GetTrajectory());
@@ -150,6 +152,18 @@ Position& Object::GetDrivePosition()
                                           pos_.GetP(),
                                           pos_.GetR(),
                                           Position::PosMode::Z_ABS | Position::PosMode::H_ABS | Position::PosMode::P_ABS | Position::PosMode::R_ABS);
+        if (drive_position_.GetTrajectory() != nullptr)
+        {
+            if (drive_position_.CalcTrajectoryPosition() != 0 || pos_.CalcTrajectoryPosition() != 0)
+            {
+                LOG_ERROR_AND_QUIT("Failed to update trajectory coordinates after placing {}", name_);
+            }
+            const double drive_s = drive_position_.GetTrajectoryS();
+            drive_position_.SetTrajectoryS(drive_s, false);
+            reference_trajectory_   = pos_.GetTrajectory();
+            reference_trajectory_s_ = pos_.GetTrajectoryS();
+            drive_trajectory_s_     = drive_s;
+        }
         reference_pose_       = pose;
         drive_position_valid_ = true;
     }
@@ -157,8 +171,21 @@ Position& Object::GetDrivePosition()
     drive_position_.SetAcc(pos_.GetAccX(), pos_.GetAccY(), pos_.GetAccZ());
     drive_position_.SetAngularVel(pos_.GetHRate(), pos_.GetPRate(), pos_.GetRRate());
     drive_position_.SetAngularAcc(pos_.GetHAcc(), pos_.GetPAcc(), pos_.GetRAcc());
+    const double drive_t = drive_position_.GetTrajectoryT();
     drive_position_.CopyConfig(pos_);
+    drive_position_.SetTrajectoryT(drive_t, false);
     return drive_position_;
+}
+
+void Object::UpdateDrivePosition()
+{
+    drive_position_valid_ = false;
+    GetDrivePosition();
+}
+
+double Object::GetReferenceSpeedScale() const
+{
+    return pos_.GetTrajectory() != nullptr && !NEAR_ZERO(refpoint_x_offset_) ? reference_speed_scale_ : 1.0;
 }
 
 void Object::UpdateReferencePosition(double dt)
@@ -205,6 +232,43 @@ void Object::UpdateReferencePosition(double dt)
                            drive_position_.GetP(),
                            drive_position_.GetR(),
                            Position::PosMode::Z_ABS | Position::PosMode::H_ABS | Position::PosMode::P_ABS | Position::PosMode::R_ABS);
+    if (pos_.GetTrajectory() != nullptr)
+    {
+        if (pos_.CalcTrajectoryPosition() != 0)
+        {
+            LOG_ERROR_AND_QUIT("Failed to calculate reference trajectory coordinates for {}", name_);
+        }
+        const double reference_s = pos_.GetTrajectoryS();
+        const double drive_s     = drive_position_.GetTrajectoryS();
+        if (reference_trajectory_ != pos_.GetTrajectory())
+        {
+            reference_trajectory_   = pos_.GetTrajectory();
+            reference_speed_scale_  = 1.0;
+            reference_trajectory_s_ = reference_s;
+            drive_trajectory_s_     = drive_s;
+        }
+        else if (dt > SMALL_NUMBER && fabs(drive_s - drive_trajectory_s_) > SMALL_NUMBER)
+        {
+            double reference_ds = reference_s - reference_trajectory_s_;
+            double drive_ds     = drive_s - drive_trajectory_s_;
+            if (reference_trajectory_->closed_ && reference_trajectory_->GetLength() > SMALL_NUMBER)
+            {
+                reference_ds = std::remainder(reference_ds, reference_trajectory_->GetLength());
+                drive_ds     = std::remainder(drive_ds, reference_trajectory_->GetLength());
+            }
+            if (fabs(drive_ds) > SMALL_NUMBER)
+            {
+                reference_speed_scale_ = reference_ds / drive_ds;
+            }
+            reference_trajectory_s_ = reference_s;
+            drive_trajectory_s_     = drive_s;
+        }
+    }
+    else
+    {
+        reference_trajectory_  = nullptr;
+        reference_speed_scale_ = 1.0;
+    }
     reference_pose_ = {pos_.GetX(), pos_.GetY(), pos_.GetZ(), pos_.GetH(), pos_.GetP(), pos_.GetR()};
 }
 

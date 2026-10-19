@@ -8061,6 +8061,7 @@ void Position::Init()
     lane_id_                = 0;
     s_                      = 0.0;
     t_trajectory_           = 0.0;
+    s_trajectory_           = std::nan("");
     t_                      = 0.0;
     offset_                 = 0.0;
     x_                      = 0.0;
@@ -8247,6 +8248,7 @@ void Position::CopyLocation(const Position& from)
     routeStrategy_          = from.routeStrategy_;
     route_waypoint_s_       = from.route_waypoint_s_;
     route_waypoint_dir_     = from.route_waypoint_dir_;
+    s_trajectory_           = from.s_trajectory_;
 }
 
 void Position::CopyState(const Position& from)
@@ -10822,8 +10824,9 @@ int Position::TeleportTo(Position* position)
     {
         if (position->GetTrajectory() != nullptr)
         {
-            // assume compatible trajectories and use s value of teleport action
-            position->SetTrajectoryS(GetTrajectoryS());
+            // Adopt the target coordinate, without moving or modifying the teleport target.
+            SetTrajectoryS(position->GetTrajectoryS(), false);
+            t_trajectory_ = position->GetTrajectoryT();
         }
     }
 
@@ -12680,7 +12683,8 @@ void Position::DeleteTrajectory()
 
 void Position::SetTrajectory(RMTrajectory* trajectory)
 {
-    trajectory_ = trajectory;
+    trajectory_   = trajectory;
+    s_trajectory_ = std::nan("");
 }
 
 bool Position::Delta(Position* pos_b, PositionDiff& diff, bool bothDirections, double maxDist) const
@@ -15234,11 +15238,51 @@ int Position::SetTrajectoryPosByTime(double time)
 
 double Position::GetTrajectoryS() const
 {
-    return trajectory_ ? trajectory_->GetS() : 0.0;
+    return trajectory_ ? (std::isnan(s_trajectory_) ? trajectory_->GetS() : s_trajectory_) : 0.0;
+}
+
+int Position::CalcTrajectoryPosition()
+{
+    if (trajectory_ == nullptr || trajectory_->shape_ == nullptr)
+    {
+        LOG_ERROR("Cannot project position onto a missing trajectory");
+        return -1;
+    }
+    TrajVertex closest;
+    idx_t      index = 0;
+    auto&      pline = trajectory_->shape_->pline_;
+    if (trajectory_->shape_->FindClosestPoint(GetX(), GetY(), closest, index) != 0 || index + 1 >= pline.GetNumberOfVertices())
+    {
+        LOG_ERROR("Failed to project position onto trajectory {}", trajectory_->name_);
+        return -1;
+    }
+    const auto&  a      = pline.GetVertices()[index];
+    const auto&  b      = pline.GetVertices()[index + 1];
+    const double dx     = b.x - a.x;
+    const double dy     = b.y - a.y;
+    const double length = GetLengthOfVector2D(dx, dy);
+    if (length < SMALL_NUMBER)
+    {
+        LOG_ERROR("Cannot project position onto zero-length segment of trajectory {}", trajectory_->name_);
+        return -1;
+    }
+    double along = ((GetX() - a.x) * dx + (GetY() - a.y) * dy) / length;
+    if (index > 0 || trajectory_->closed_)
+    {
+        along = MAX(0.0, along);
+    }
+    if (index + 2 < pline.GetNumberOfVertices() || trajectory_->closed_)
+    {
+        along = MIN(length, along);
+    }
+    s_trajectory_ = a.s + along * (b.s - a.s) / length;
+    t_trajectory_ = (dx * (GetY() - a.y) - dy * (GetX() - a.x)) / length;
+    return 0;
 }
 
 int Position::SetTrajectoryS(double trajectory_s, bool update)
 {
+    s_trajectory_ = std::nan("");
     if (!trajectory_)
     {
         return -1;
@@ -15279,9 +15323,10 @@ int Position::UpdateTrajectoryPos()
         return -1;
     }
 
-    double x = trajectory_->shape_->current_val_.x;
-    double y = trajectory_->shape_->current_val_.y;
-    double z = trajectory_->shape_->current_val_.z;
+    s_trajectory_ = std::nan("");
+    double x      = trajectory_->shape_->current_val_.x;
+    double y      = trajectory_->shape_->current_val_.y;
+    double z      = trajectory_->shape_->current_val_.z;
 
     // First adjust lateral offset
     if (!NEAR_ZERO(t_trajectory_))

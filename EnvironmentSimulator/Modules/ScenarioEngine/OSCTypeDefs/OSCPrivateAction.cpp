@@ -2506,7 +2506,7 @@ void TeleportAction::Start(double simTime)
             object_->SetSpeed(object_->ghost_Ego_->GetSpeed());
 
             // simply duplicate the position of host/ego vehicle
-            object_->GetDrivePosition().Duplicate(object_->ghost_Ego_->GetDrivePosition());
+            object_->pos_.Duplicate(object_->ghost_Ego_->pos_);
         }
         else
         {
@@ -2524,13 +2524,13 @@ void TeleportAction::Start(double simTime)
         }
 
         // consider any assigned route for relative positions
-        position_.CopyRoute(object_->GetDrivePosition());
+        position_.CopyRoute(object_->pos_);
 
         // do the relocation
-        object_->GetDrivePosition().TeleportTo(&position_);
+        object_->pos_.TeleportTo(&position_);
     }
 
-    object_->UpdateReferencePosition();
+    object_->UpdateDrivePosition();
 
     if (!object_->TowVehicle() && object_->TrailerVehicle())
     {
@@ -2740,7 +2740,6 @@ void SynchronizeAction::Start(double simTime)
     if (steadyState_.type_ == SteadyStateType::STEADY_STATE_TIME)
     {
         steadyState_.dist_ = steadyState_.time_ * final_speed_->GetValue();
-        steadyState_.type_ = SteadyStateType::STEADY_STATE_DIST;
     }
     else if (steadyState_.type_ == SteadyStateType::STEADY_STATE_POS)
     {
@@ -2797,32 +2796,34 @@ void SynchronizeAction::Step(double simTime, double dt)
     roadmanager::PositionDiff diff;
 
     int retval = -1;
-    if (master_object_->GetDrivePosition().GetTrajectory())
+    if (master_object_->pos_.GetTrajectory())
     {
-        retval = master_object_->GetDrivePosition().Distance(&target_position_master_,
-                                                             roadmanager::CoordinateSystem::CS_TRAJECTORY,
-                                                             roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
-                                                             masterDist);
+        retval = master_object_->pos_.Distance(&target_position_master_,
+                                               roadmanager::CoordinateSystem::CS_TRAJECTORY,
+                                               roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
+                                               masterDist);
+        roadmanager::TrajVertex master_vertex;
+        auto&                   master_line = master_object_->pos_.GetTrajectory()->shape_->pline_;
+        if (master_line.Evaluate(master_object_->pos_.GetTrajectoryS(), master_vertex) == IDX_UNDEFINED)
+        {
+            LOG_ERROR_AND_QUIT("SynchronizeAction cannot evaluate master trajectory for {}", master_object_->name_);
+        }
         distance_direction_master =
-            SIGN(masterDist) * (IsAngleForward(GetAngleDifference(master_object_->GetDrivePosition().GetTrajectory()->GetHTrue(),
-                                                                  master_object_->GetDrivePosition().GetH()))
-                                    ? 1
-                                    : -1);
+            SIGN(masterDist) * (IsAngleForward(GetAngleDifference(master_vertex.h_true, master_object_->pos_.GetH())) ? 1 : -1);
         masterDist = fabs(masterDist);
     }
 
     if (retval == -1 || masterDist > LARGE_NUMBER - SMALL_NUMBER)
     {
-        if (!master_object_->GetDrivePosition().Delta(&target_position_master_, diff))
+        if (!master_object_->pos_.Delta(&target_position_master_, diff))
         {
             // No road network path between master vehicle and master target pos - using world coordinate distance
-            double distance_vector[2]     = {target_position_master_.GetX() - master_object_->GetDrivePosition().GetX(),
-                                             target_position_master_.GetY() - master_object_->GetDrivePosition().GetY()};
+            double distance_vector[2]     = {target_position_master_.GetX() - master_object_->pos_.GetX(),
+                                             target_position_master_.GetY() - master_object_->pos_.GetY()};
             diff.ds                       = GetLengthOfVector2D(distance_vector[0], distance_vector[1]);
             masterDist                    = fabs(diff.ds);
             double heading_to_destination = GetAngleOfVector(distance_vector[0], distance_vector[1]);
-            distance_direction_master =
-                IsAngleForward(GetAngleDifference(heading_to_destination, master_object_->GetDrivePosition().GetH())) ? 1 : -1;
+            distance_direction_master     = IsAngleForward(GetAngleDifference(heading_to_destination, master_object_->pos_.GetH())) ? 1 : -1;
         }
         else
         {
@@ -2832,22 +2833,21 @@ void SynchronizeAction::Step(double simTime, double dt)
     }
 
     retval = -1;
-    if (object_->GetDrivePosition().GetTrajectory())
+    if (object_->pos_.GetTrajectory())
     {
-        retval = object_->GetDrivePosition().Distance(&target_position_,
-                                                      roadmanager::CoordinateSystem::CS_TRAJECTORY,
-                                                      roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
-                                                      dist);
+        retval = object_->pos_.Distance(&target_position_,
+                                        roadmanager::CoordinateSystem::CS_TRAJECTORY,
+                                        roadmanager::RelativeDistanceType::REL_DIST_LONGITUDINAL,
+                                        dist);
         dist   = fabs(dist);
     }
 
     if (retval == -1 || dist > LARGE_NUMBER - SMALL_NUMBER)
     {
-        if (!object_->GetDrivePosition().Delta(&target_position_, diff))
+        if (!object_->pos_.Delta(&target_position_, diff))
         {
             // No road network path between action vehicle and action target pos - using world coordinate distance
-            double distance_vector[2] = {target_position_.GetX() - object_->GetDrivePosition().GetX(),
-                                         target_position_.GetY() - object_->GetDrivePosition().GetY()};
+            double distance_vector[2] = {target_position_.GetX() - object_->pos_.GetX(), target_position_.GetY() - object_->pos_.GetY()};
             diff.ds                   = GetLengthOfVector2D(distance_vector[0], distance_vector[1]);
             dist                      = fabs(diff.ds);
         }
@@ -2888,8 +2888,10 @@ void SynchronizeAction::Step(double simTime, double dt)
 
     double masterTimeToDest = LARGE_NUMBER;
 
-    // project speed on road s-axis
-    double master_speed = SIGN(master_object_->GetSpeed()) * distance_direction_master * fabs(master_object_->GetDrivePosition().GetVelS());
+    // Trajectory ETA uses reference-point progress, not road-axis velocity or drive-point progress.
+    double master_speed = master_object_->pos_.GetTrajectory() != nullptr ? master_object_->GetSpeed() * master_object_->GetReferenceSpeedScale()
+                                                                          : SIGN(master_object_->GetSpeed()) * fabs(master_object_->pos_.GetVelS());
+    master_speed *= distance_direction_master;
 
     if (master_speed > SMALL_NUMBER)
     {
@@ -2918,6 +2920,14 @@ void SynchronizeAction::Step(double simTime, double dt)
     }
     else
     {
+        // Speed commands (including finalSpeed) still specify drive-point speed.
+        const double speed_scale = object_->GetReferenceSpeedScale();
+        if (speed_scale <= SMALL_NUMBER)
+        {
+            LOG_WARN_ONCE("SynchronizeAction: reference point of {} has no forward trajectory progress; keeping current speed", object_->name_);
+            return;
+        }
+        dist /= speed_scale;
         double average_speed = dist / masterTimeToDest;
         double acc           = 0;
 
@@ -2925,13 +2935,15 @@ void SynchronizeAction::Step(double simTime, double dt)
         {
             if (steadyState_.type_ != SteadyStateType::STEADY_STATE_NONE && mode_ != SynchMode::MODE_STEADY_STATE)
             {
-                double time_to_ss = steadyState_.dist_ / final_speed_->GetValue();
+                const double steady_distance =
+                    steadyState_.type_ == SteadyStateType::STEADY_STATE_TIME ? steadyState_.dist_ : steadyState_.dist_ / speed_scale;
+                double time_to_ss = steady_distance / final_speed_->GetValue();
 
-                if (dist - steadyState_.dist_ < SMALL_NUMBER || masterTimeToDest - time_to_ss < SMALL_NUMBER)
+                if (dist - steady_distance < SMALL_NUMBER || masterTimeToDest - time_to_ss < SMALL_NUMBER)
                 {
                     SetMode(SynchMode::MODE_STEADY_STATE);
                     SetSubMode(SynchSubmode::SUBMODE_NONE);
-                    if (time_to_ss > masterTimeToDest && (time_to_ss - masterTimeToDest) * final_speed_->GetValue() > tolerance_)
+                    if (time_to_ss > masterTimeToDest && (time_to_ss - masterTimeToDest) * final_speed_->GetValue() > tolerance_ / speed_scale)
                     {
                         LOG_INFO("Entering Stead State according to criteria but not enough time to reach destination");
                     }
@@ -2939,7 +2951,7 @@ void SynchronizeAction::Step(double simTime, double dt)
                 else
                 {
                     // subtract steady state distance
-                    dist -= steadyState_.dist_;
+                    dist -= steady_distance;
 
                     // subtract steady state duration
                     masterTimeToDest -= time_to_ss;
@@ -3099,7 +3111,7 @@ void SynchronizeAction::Step(double simTime, double dt)
             double t = masterTimeToDest;
 
             // project speed on road s-axis
-            double v0 = SIGN(object_->GetSpeed()) * abs(object_->GetDrivePosition().GetVelS());
+            double v0 = object_->pos_.GetTrajectory() != nullptr ? object_->GetSpeed() : SIGN(object_->GetSpeed()) * fabs(object_->pos_.GetVelS());
             double v1 = final_speed_->GetValue();
 
             // Calculate both solutions from the quadratic equation

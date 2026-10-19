@@ -404,6 +404,7 @@ namespace viewer
         osg::ref_ptr<osg::Group>                     parent_;
         osg::BoundingBox                             modelBB_;
         osg::ref_ptr<osg::Group>                     bbGroup_;
+        osg::ref_ptr<osg::PositionAttitudeTransform> drive_point_;
 
         std::unique_ptr<Trajectory> trajectory_;
         virtual EntityType          GetType()
@@ -439,6 +440,7 @@ namespace viewer
                     std::string              name);
         virtual ~EntityModel();
         void              UpdatePositionAndOrientation(roadmanager::Position* pos);
+        void              SetDrivePointOffset(double x_offset);
         const osg::Vec3d* GetPosition() const;
 
         void SetTransparency(double factor);

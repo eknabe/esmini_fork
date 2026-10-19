@@ -414,6 +414,8 @@ void ScenarioPlayer::ViewerFrame()
                                                            obj->scaleMode_,
                                                            obj->GetColorStr()));
 
+        viewer_->entities_.back()->SetDrivePointOffset(obj->GetRefpointXOffset());
+
         // Connect callback for setting transparency
         viewer::VisibilityCallback* cb = new viewer::VisibilityCallback(obj, viewer_->entities_.back());
         viewer_->entities_.back()->lod_->setUpdateCallback(cb);
@@ -453,6 +455,7 @@ void ScenarioPlayer::ViewerFrame()
         viewer::EntityModel* entity = viewer_->entities_[i];
         Object*              obj    = scenarioEngine->entities_.object_[i];
 
+        entity->SetDrivePointOffset(obj->GetRefpointXOffset());
         entity->UpdatePositionAndOrientation(&obj->pos_);
 
         if (vehicle_dynamics_enabled_)
@@ -1172,6 +1175,8 @@ int ScenarioPlayer::InitViewer()
             CloseViewer();
             return -1;
         }
+
+        viewer_->entities_.back()->SetDrivePointOffset(obj->GetRefpointXOffset());
 
         // Connect callback for setting transparency
         viewer::VisibilityCallback* cb = new viewer::VisibilityCallback(obj, viewer_->entities_.back());

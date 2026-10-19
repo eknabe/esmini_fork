@@ -4404,6 +4404,9 @@ namespace roadmanager
         */
         double GetTrajectoryS() const;
 
+        // Project this position without advancing the shared trajectory's motion state.
+        int CalcTrajectoryPosition();
+
         /**
         Move current position to specified T-value along the trajectory
         @param trajectory_t Lateral distance from trajectory at current s-value
@@ -5181,6 +5184,7 @@ namespace roadmanager
         double h_relative_;    // heading relative to the road (h_ = h_road_ + h_relative_)
         double z_relative_;    // z relative to the road
         double t_trajectory_;  // lateral point/distance along the trajectory
+        double s_trajectory_;  // projected coordinate, NaN when following the trajectory's motion state
         double curvature_;
         double p_relative_;   // pitch relative to the road (h_ = h_road_ + h_relative_)
         double r_relative_;   // roll relative to the road (h_ = h_road_ + h_relative_)

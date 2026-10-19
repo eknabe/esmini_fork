@@ -4,6 +4,7 @@
 #include <vector>
 #include <stdexcept>
 #include <array>
+#include <memory>
 
 #include "CommonMini.hpp"
 #include "ScenarioEngine.hpp"
@@ -138,7 +139,8 @@ TEST_P(DrivePointTest, DefaultControllerAndExternalOriginUpdate)
     for (int i = 0; i < 101; ++i)
     {
         CheckOffset(object);
-        EXPECT_NEAR(object->GetDrivePosition().GetS(), 100.0 + engine.getSimulationTime(), 1e-6);
+        EXPECT_NEAR(object->pos_.GetS(), 100.0 + engine.getSimulationTime(), 1e-6);
+        EXPECT_NEAR(object->GetDrivePosition().GetS(), 100.0 + GetParam() + engine.getSimulationTime(), 1e-6);
         EXPECT_NEAR(object->GetDrivePosition().GetOffset(), 0.25, 1e-6);
         scenario_step(&engine, 0.1);
     }
@@ -170,12 +172,16 @@ TEST_P(DrivePointTest, CurvedLaneFollowing)
     ScenarioEngine engine(doc);
     scenario_step(&engine, 0.0);
     Object* object = engine.entities_.object_[0];
+    EXPECT_NEAR(object->pos_.GetS(), 550.0, 1e-6);
+    EXPECT_NEAR(object->pos_.GetOffset(), 0.25, 1e-6);
+    const double drive_offset  = object->GetDrivePosition().GetOffset();
+    const double drive_start_s = object->GetDrivePosition().GetS();
     for (int i = 0; i < 101; ++i)
     {
         CheckOffset(object);
-        EXPECT_NEAR(object->GetDrivePosition().GetOffset(), 0.25, 1e-6);
-        EXPECT_GT(object->GetDrivePosition().GetS(), 549.99);
-        EXPECT_LT(object->GetDrivePosition().GetS(), 561.0);
+        EXPECT_NEAR(object->GetDrivePosition().GetOffset(), drive_offset, 1e-6);
+        EXPECT_GE(object->GetDrivePosition().GetS(), drive_start_s - 1e-6);
+        EXPECT_LT(object->GetDrivePosition().GetS(), drive_start_s + 11.0);
         scenario_step(&engine, 0.1);
     }
 }
@@ -197,7 +203,7 @@ TEST_P(DrivePointTest, DrivePointReachesEndOfRoad)
     ScenarioEngine engine(doc);
     scenario_step(&engine, 0.0);
     Object* object = engine.entities_.object_[0];
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 10 + static_cast<int>(10.0 * MAX(0.0, -GetParam())); ++i)
     {
         scenario_step(&engine, 0.1);
     }
@@ -232,8 +238,8 @@ TEST_P(DrivePointTest, AssignedRouteUsesDrivePoint)
         CheckOffset(object);
         ASSERT_NE(object->GetDrivePosition().GetRoute(), nullptr);
         ASSERT_NE(object->pos_.GetRoute(), nullptr);
-        EXPECT_NEAR(object->GetDrivePosition().GetRouteS(), 50.0 + engine.getSimulationTime(), 1e-6);
-        EXPECT_NEAR(object->pos_.GetRouteS(), 50.0 + engine.getSimulationTime() - GetParam(), 1e-6);
+        EXPECT_NEAR(object->GetDrivePosition().GetRouteS(), 50.0 + engine.getSimulationTime() + GetParam(), 1e-6);
+        EXPECT_NEAR(object->pos_.GetRouteS(), 50.0 + engine.getSimulationTime(), 1e-6);
         scenario_step(&engine, 0.1);
     }
 }
@@ -261,6 +267,268 @@ TEST_P(DrivePointTest, RelativeEntityPositionsUseOrigin)
     Object* target = engine.entities_.object_[1];
     EXPECT_NEAR(target->pos_.GetX(), car->pos_.GetX() - 2.0 * sin(car->pos_.GetH()), 1e-6);
     EXPECT_NEAR(target->pos_.GetY(), car->pos_.GetY() + 2.0 * cos(car->pos_.GetH()), 1e-6);
+}
+
+TEST_P(DrivePointTest, StraightTrajectoryCoordinatesDescribeReferencePoint)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto actions = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    actions.last_child()
+        .child("RoutingAction")
+        .child("FollowTrajectoryAction")
+        .child("Trajectory")
+        .child("Shape")
+        .child("Clothoid")
+        .attribute("curvature") = "0";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 101; ++i)
+    {
+        Position& drive = object->GetDrivePosition();
+        EXPECT_NEAR(drive.GetTrajectoryS(), engine.getSimulationTime(), 1e-6);
+        EXPECT_NEAR(object->pos_.GetTrajectoryS(), drive.GetTrajectoryS() - GetParam(), 1e-6);
+        EXPECT_NEAR(object->pos_.GetTrajectoryT(), 0.0, 1e-6);
+        EXPECT_NEAR(object->GetReferenceSpeedScale(), 1.0, 1e-6);
+        const double motion_s = drive.GetTrajectory()->GetS();
+        ASSERT_EQ(object->pos_.CalcTrajectoryPosition(), 0);
+        EXPECT_DOUBLE_EQ(drive.GetTrajectory()->GetS(), motion_s);
+        EXPECT_NEAR(drive.GetTrajectoryT(), 0.0, 1e-6);
+        scenario_step(&engine, 0.1);
+    }
+    if (!NEAR_ZERO(GetParam()))
+    {
+        const double reference_s = object->pos_.GetTrajectoryS();
+        const double drive_s     = object->GetDrivePosition().GetTrajectoryS();
+        object->GetDrivePosition().SetTrajectoryS(drive_s + 1.0);
+        EXPECT_DOUBLE_EQ(object->pos_.GetTrajectoryS(), reference_s);
+    }
+}
+
+TEST_P(DrivePointTest, CurvedTrajectoryCoordinatesAreProjected)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 0; i < 100; ++i)
+    {
+        scenario_step(&engine, 0.1);
+    }
+    const double cx          = 10.0 - sin(-1.2) / 0.1;
+    const double cy          = -10.0 + cos(-1.2) / 0.1;
+    const double dx          = object->pos_.GetX() - cx;
+    const double dy          = object->pos_.GetY() - cy;
+    const double projected_s = GetAngleDifference(atan2(dx, -dy), -1.2) / 0.1;
+    // The trajectory's piecewise-linear approximation differs slightly from the analytic circle.
+    EXPECT_NEAR(object->pos_.GetTrajectoryS(), projected_s, 0.05);
+    EXPECT_NEAR(object->pos_.GetTrajectoryT(), 10.0 - hypot(dx, dy), 0.02);
+    const double old_s       = object->pos_.GetTrajectoryS();
+    const double old_drive_s = object->GetDrivePosition().GetTrajectoryS();
+    scenario_step(&engine, 0.1);
+    EXPECT_NEAR(object->GetReferenceSpeedScale(),
+                (object->pos_.GetTrajectoryS() - old_s) / (object->GetDrivePosition().GetTrajectoryS() - old_drive_s),
+                1e-6);
+}
+
+TEST_P(DrivePointTest, TeleportAndAddEntityPlaceReferencePoint)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, false);
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object*        object = engine.entities_.object_[0];
+    TeleportAction teleport(nullptr);
+    teleport.object_ = object;
+    teleport.SetScenarioEngine(&engine);
+    teleport.position_.SetInertiaPos(120.0, -2.0, 0.0, 0.3, 0.0, 0.0);
+    for (int i = 0; i < 2; ++i)
+    {
+        teleport.Start(engine.getSimulationTime());
+        EXPECT_NEAR(object->pos_.GetX(), 120.0, 1e-8);
+        EXPECT_NEAR(object->pos_.GetY(), -2.0, 1e-8);
+        CheckOffset(object);
+    }
+    ASSERT_EQ(engine.entities_.deactivateObject(object), 0);
+    AddEntityAction add(nullptr);
+    add.entity_   = object;
+    add.entities_ = &engine.entities_;
+    add.pos_      = new Position(140.0, -1.0, 0.0, 0.6, 0.0, 0.0);
+    add.Start(engine.getSimulationTime());
+    EXPECT_NEAR(object->pos_.GetX(), 140.0, 1e-8);
+    EXPECT_NEAR(object->pos_.GetY(), -1.0, 1e-8);
+    CheckOffset(object);
+}
+
+TEST_P(DrivePointTest, TrajectoryTeleportPlacesReferencePoint)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto actions  = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    auto position = actions.first_child().child("TeleportAction").child("Position");
+    position.remove_child("WorldPosition");
+    auto target                  = position.append_child("TrajectoryPosition");
+    target.append_attribute("s") = "5";
+    target.append_attribute("t") = "1";
+    auto trajectory              = actions.last_child().child("RoutingAction").child("FollowTrajectoryAction").child("Trajectory");
+    trajectory.child("Shape").child("Clothoid").attribute("curvature") = "0";
+    target.append_child("TrajectoryRef").append_copy(trajectory);
+    actions.remove_child(actions.last_child());
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    EXPECT_NEAR(object->pos_.GetX(), 10.0 + 5.0 * cos(-1.2) - sin(-1.2), 1e-6);
+    EXPECT_NEAR(object->pos_.GetY(), -10.0 + 5.0 * sin(-1.2) + cos(-1.2), 1e-6);
+    CheckOffset(object);
+}
+
+TEST_P(DrivePointTest, SynchronizeMeasuresReferenceDistance)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto actions = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    actions.last_child()
+        .child("RoutingAction")
+        .child("FollowTrajectoryAction")
+        .child("Trajectory")
+        .child("Shape")
+        .child("Clothoid")
+        .attribute("curvature") = "0";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* master = engine.entities_.object_[0];
+    Vehicle actor;
+    actor.pos_.SetLanePos(1, -1, 100.0, 0.0);
+    actor.SetSpeed(1.0);
+    SynchronizeAction sync(nullptr);
+    sync.object_        = &actor;
+    sync.master_object_ = master;
+    sync.target_position_master_.SetInertiaPos(10.0 + 5.0 * cos(-1.2), -10.0 + 5.0 * sin(-1.2), 0.0, -1.2, 0.0, 0.0);
+    sync.target_position_.SetLanePos(1, -1, 120.0, 0.0);
+    sync.Step(0.0, 0.1);
+    const double eta = 5.0 + GetParam();
+    EXPECT_NEAR(sync.lastMasterDist_, eta, 1e-6);
+    EXPECT_NEAR(sync.lastDist_, 20.0, 1e-6);
+    EXPECT_NEAR(actor.GetSpeed(), 1.0 + 2.0 * (20.0 / eta - 1.0) / eta * 0.1, 1e-6);
+}
+
+TEST_P(DrivePointTest, TeleportOnAssignedTrajectoryPreservesTarget)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto actions = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    actions.last_child()
+        .child("RoutingAction")
+        .child("FollowTrajectoryAction")
+        .child("Trajectory")
+        .child("Shape")
+        .child("Clothoid")
+        .attribute("curvature") = "0";
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object*                       object = engine.entities_.object_[0];
+    std::unique_ptr<RMTrajectory> target(object->pos_.GetTrajectory()->Copy());
+    TeleportAction                teleport(nullptr);
+    teleport.object_ = object;
+    teleport.SetScenarioEngine(&engine);
+    teleport.position_.SetTrajectory(target.get());
+    ASSERT_EQ(teleport.position_.SetTrajectoryS(7.0), 0);
+    ASSERT_EQ(teleport.position_.SetTrajectoryT(1.0), 0);
+    teleport.Start(engine.getSimulationTime());
+    EXPECT_NEAR(object->pos_.GetX(), 10.0 + 7.0 * cos(-1.2) - sin(-1.2), 1e-6);
+    EXPECT_NEAR(object->pos_.GetY(), -10.0 + 7.0 * sin(-1.2) + cos(-1.2), 1e-6);
+    EXPECT_NEAR(object->pos_.GetTrajectoryS(), 7.0, 1e-6);
+    EXPECT_NEAR(object->pos_.GetTrajectoryT(), 1.0, 1e-6);
+    EXPECT_NEAR(object->GetDrivePosition().GetTrajectoryS(), 7.0 + GetParam(), 1e-6);
+    EXPECT_NEAR(teleport.position_.GetTrajectoryS(), 7.0, 1e-6);
+    EXPECT_NEAR(teleport.position_.GetTrajectoryT(), 1.0, 1e-6);
+    CheckOffset(object);
+    object->pos_.SetInertiaPos(10.0 + 9.0 * cos(-1.2), -10.0 + 9.0 * sin(-1.2), 0.0, -1.2, 0.0, 0.0);
+    CheckOffset(object);
+    if (!NEAR_ZERO(GetParam()))
+    {
+        EXPECT_NEAR(object->pos_.GetTrajectoryS(), 9.0, 1e-6);
+        EXPECT_NEAR(object->GetDrivePosition().GetTrajectoryS(), 9.0 + GetParam(), 1e-6);
+    }
+}
+
+TEST_P(DrivePointTest, SynchronizeConvertsReferenceProgressToDriveSpeed)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    for (int i = 0; i < 100; ++i)
+    {
+        scenario_step(&engine, 0.1);
+    }
+    Object* actor = engine.entities_.object_[0];
+    Vehicle master;
+    master.pos_.SetLanePos(1, -1, 100.0, 0.0);
+    master.SetSpeed(2.0);
+    master.pos_.SetVel(2.0, 0.0, 0.0);
+    SynchronizeAction sync(nullptr);
+    sync.object_        = actor;
+    sync.master_object_ = &master;
+    sync.target_position_master_.SetLanePos(1, -1, 110.0, 0.0);
+    TrajVertex target;
+    actor->pos_.GetTrajectory()->shape_->pline_.Evaluate(actor->pos_.GetTrajectoryS() + 3.0, target);
+    sync.target_position_.SetInertiaPos(target.x, target.y, target.z, target.h, 0.0, 0.0);
+    double distance = 0.0;
+    ASSERT_EQ(actor->pos_.Distance(&sync.target_position_, CoordinateSystem::CS_TRAJECTORY, RelativeDistanceType::REL_DIST_LONGITUDINAL, distance),
+              0);
+    const double scale = actor->GetReferenceSpeedScale();
+    ASSERT_GT(scale, 0.0);
+    sync.Step(engine.getSimulationTime(), 0.1);
+    EXPECT_NEAR(sync.lastDist_, distance, 1e-8);
+    EXPECT_NEAR(actor->GetSpeed(), 1.0 + 2.0 * (distance / scale / 5.0 - 1.0) / 5.0 * 0.1, 1e-6);
+
+    sync.final_speed_         = std::make_shared<LongSpeedAction::TargetAbsolute>();
+    sync.final_speed_->value_ = 1.0;
+    sync.target_position_master_.SetLanePos(1, -1, 300.0, 0.0);
+    sync.steadyState_.type_ = SynchronizeAction::STEADY_STATE_DIST;
+    sync.steadyState_.dist_ = (distance + distance / scale) / 2.0;
+    sync.mode_              = SynchronizeAction::MODE_NONE;
+    sync.lastMasterDist_    = LARGE_NUMBER;
+    sync.lastDist_          = LARGE_NUMBER;
+    sync.Start(engine.getSimulationTime());
+    sync.Step(engine.getSimulationTime(), 0.1);
+    EXPECT_EQ(sync.mode_ == SynchronizeAction::MODE_STEADY_STATE, distance - sync.steadyState_.dist_ < SMALL_NUMBER);
+
+    sync.steadyState_.type_ = SynchronizeAction::STEADY_STATE_TIME;
+    sync.steadyState_.time_ = (distance + distance / scale) / 2.0;
+    sync.mode_              = SynchronizeAction::MODE_NONE;
+    sync.lastMasterDist_    = LARGE_NUMBER;
+    sync.lastDist_          = LARGE_NUMBER;
+    sync.Start(engine.getSimulationTime());
+    sync.Step(engine.getSimulationTime(), 0.1);
+    EXPECT_EQ(sync.mode_ == SynchronizeAction::MODE_STEADY_STATE, distance / scale - sync.steadyState_.time_ < SMALL_NUMBER);
+}
+
+TEST_P(DrivePointTest, ClosedTrajectoryReferenceProgressWraps)
+{
+    pugi::xml_document doc;
+    LoadScenario(doc, true);
+    auto actions                   = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions").child("Private");
+    auto trajectory                = actions.last_child().child("RoutingAction").child("FollowTrajectoryAction").child("Trajectory");
+    trajectory.attribute("closed") = "true";
+    trajectory.child("Shape").child("Clothoid").attribute("length")    = "60";
+    trajectory.child("Shape").child("Clothoid").attribute("curvature") = std::to_string(2.0 * M_PI / 60.0).c_str();
+    ScenarioEngine engine(doc);
+    scenario_step(&engine, 0.0);
+    Object* object = engine.entities_.object_[0];
+    for (int i = 1; i < 800; ++i)
+    {
+        object->GetDrivePosition().SetTrajectoryS(fmod(i * 0.1, 60.0));
+        object->UpdateReferencePosition(0.1);
+        static_cast<Vehicle*>(object)->AlignRearAxlePosition();
+        EXPECT_GE(object->GetReferenceSpeedScale(), -SMALL_NUMBER);
+        EXPECT_LT(object->GetReferenceSpeedScale(), 5.0);
+        EXPECT_GE(object->pos_.GetTrajectoryS(), 0.0);
+        EXPECT_LE(object->pos_.GetTrajectoryS(), object->pos_.GetTrajectory()->GetLength());
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(Offsets, DrivePointTest, testing::Values(0.0, 3.0, 8.0, -3.0));

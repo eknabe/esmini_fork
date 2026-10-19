@@ -798,6 +798,8 @@ namespace scenarioengine
         // Scenario motion acts on the drive point; pos_ always describes the entity origin.
         roadmanager::Position& GetDrivePosition();
         void                   UpdateReferencePosition(double dt = 0.0);
+        void                   UpdateDrivePosition();
+        double                 GetReferenceSpeedScale() const;
 
         void SetOSIIndex(id_t osi_index)
         {
@@ -847,16 +849,20 @@ namespace scenarioengine
         }
 
     private:
-        roadmanager::Position    drive_position_;
-        std::array<double, 6>    reference_pose_{};
-        bool                     drive_position_valid_ = false;
-        bool                     is_active_;
-        std::string              model3d_full_path_;
-        std::string              color_;
-        Rgb                      color_rgb_;
-        std::vector<std::string> source_reference_;
-        bool                     source_reference_set_;
-        id_t                     osi_index_ = ID_UNDEFINED;  // global OSI index
+        roadmanager::Position      drive_position_;
+        std::array<double, 6>      reference_pose_{};
+        bool                       drive_position_valid_   = false;
+        roadmanager::RMTrajectory* reference_trajectory_   = nullptr;
+        double                     reference_trajectory_s_ = 0.0;
+        double                     drive_trajectory_s_     = 0.0;
+        double                     reference_speed_scale_  = 1.0;
+        bool                       is_active_;
+        std::string                model3d_full_path_;
+        std::string                color_;
+        Rgb                        color_rgb_;
+        std::vector<std::string>   source_reference_;
+        bool                       source_reference_set_;
+        id_t                       osi_index_ = ID_UNDEFINED;  // global OSI index
     };
 
     class Vehicle : public Object

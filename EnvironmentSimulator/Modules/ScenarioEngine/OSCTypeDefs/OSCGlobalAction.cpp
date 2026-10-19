@@ -207,8 +207,8 @@ void AddEntityAction::Start(double simTime)
         return;
     }
 
-    entity_->GetDrivePosition().TeleportTo(pos_);
-    entity_->UpdateReferencePosition();
+    entity_->pos_.TeleportTo(pos_);
+    entity_->UpdateDrivePosition();
 
     if (!entity_->TowVehicle() && entity_->TrailerVehicle())
     {

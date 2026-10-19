@@ -1520,6 +1520,30 @@ CarModel::~CarModel()
     }
 }
 
+void EntityModel::SetDrivePointOffset(double x_offset)
+{
+    if (!drive_point_)
+    {
+        if (!NEAR_ZERO(x_offset))
+        {
+            osg::ref_ptr<osg::ShapeDrawable> marker = new osg::ShapeDrawable(new osg::Sphere(osg::Vec3(), 0.2f));
+            marker->setColor(osg::Vec4(1.0f, 0.2f, 1.0f, 1.0f));
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            geode->addDrawable(marker);
+            geode->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+            drive_point_ = new osg::PositionAttitudeTransform;
+            drive_point_->setName("DrivePoint");
+            drive_point_->addChild(geode);
+            group_->addChild(drive_point_);
+        }
+    }
+    else
+    {
+        drive_point_->setPosition(osg::Vec3d(x_offset, 0.0, 0.0));
+        drive_point_->setNodeMask(NEAR_ZERO(x_offset) ? NodeMask::NODE_MASK_NONE : NodeMask::NODE_MASK_ENTITY_BB);
+    }
+}
+
 void EntityModel::UpdatePositionAndOrientation(roadmanager::Position* pos)
 {
     txNode_->setPosition(osg::Vec3(static_cast<float>(pos->GetX() - viewer_->origin_[0]),
