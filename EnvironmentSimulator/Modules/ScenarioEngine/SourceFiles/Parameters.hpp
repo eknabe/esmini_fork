@@ -56,12 +56,12 @@ namespace scenarioengine
         int         setParameterValue(std::string name, double value);
         int         setParameterValue(std::string name, const char* value);
         int         setParameterValue(std::string name, bool value);
-        int         getParameterValue(std::string name, void* value);
-        int         getParameterValueInt(std::string name, int& value);
-        int         getParameterValueDouble(std::string name, double& value);
-        int         getParameterValueString(std::string name, const char*& value);
-        int         getParameterValueBool(std::string name, bool& value);
-        std::string getParameterValueAsString(std::string name);
+        int         getParameterValue(std::string name, void* value) const;
+        int         getParameterValueInt(std::string name, int& value) const;
+        int         getParameterValueDouble(std::string name, double& value) const;
+        int         getParameterValueString(std::string name, const char*& value) const;
+        int         getParameterValueBool(std::string name, bool& value) const;
+        std::string getParameterValueAsString(std::string name) const;
 
         std::string ResolveParametersInString(std::string str);
 

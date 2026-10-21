@@ -14,6 +14,7 @@
 #include "ScenarioReader.hpp"
 #include "simple_expr.h"
 #include "logger.hpp"
+#include <algorithm>
 
 using namespace scenarioengine;
 
@@ -123,17 +124,20 @@ const OSCParameterDeclarations::ParameterStruct* Parameters::getParameterEntryRe
     }
 
     const std::string& lookup_name = separator == std::string::npos ? reference : name;
-    for (const auto& parameter : declarations->Parameter)
+    const auto         parameter =
+        std::find_if(declarations->Parameter.begin(),
+                     declarations->Parameter.end(),
+                     [&lookup_name](const auto& entry) { return entry.name == lookup_name || PARAMETER_PREFIX + entry.name == lookup_name; });
+    if (parameter != declarations->Parameter.end())
     {
-        if (parameter.name == lookup_name || PARAMETER_PREFIX + parameter.name == lookup_name)
-        {
-            return &parameter;
-        }
+        return &*parameter;
     }
+
     if (separator != std::string::npos)
     {
         LOG_ERROR("Failed to resolve instance parameter {}: {} is not declared on the instance", reference, name);
     }
+
     return nullptr;
 }
 
@@ -147,7 +151,10 @@ OSCParameterDeclarations Parameters::CaptureParameterDeclarations(pugi::xml_node
         {
             LOG_ERROR_AND_QUIT("Failed to capture instance parameter {}", declaration.attribute("name").value());
         }
-        snapshot.Parameter.push_back(*parameter);
+        else
+        {
+            snapshot.Parameter.push_back(*parameter);
+        }
     }
     return snapshot;
 }
@@ -221,7 +228,7 @@ int Parameters::setParameterValue(std::string name, const void* value)
     return 0;
 }
 
-int Parameters::getParameterValue(std::string name, void* value)
+int Parameters::getParameterValue(std::string name, void* value) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
@@ -255,7 +262,7 @@ int Parameters::getParameterValue(std::string name, void* value)
     return 0;
 }
 
-int Parameters::getParameterValueInt(std::string name, int& value)
+int Parameters::getParameterValueInt(std::string name, int& value) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
@@ -269,7 +276,7 @@ int Parameters::getParameterValueInt(std::string name, int& value)
     return 0;
 }
 
-int Parameters::getParameterValueDouble(std::string name, double& value)
+int Parameters::getParameterValueDouble(std::string name, double& value) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
@@ -283,7 +290,7 @@ int Parameters::getParameterValueDouble(std::string name, double& value)
     return 0;
 }
 
-int Parameters::getParameterValueString(std::string name, const char*& value)
+int Parameters::getParameterValueString(std::string name, const char*& value) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
@@ -297,7 +304,7 @@ int Parameters::getParameterValueString(std::string name, const char*& value)
     return 0;
 }
 
-int Parameters::getParameterValueBool(std::string name, bool& value)
+int Parameters::getParameterValueBool(std::string name, bool& value) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
@@ -311,7 +318,7 @@ int Parameters::getParameterValueBool(std::string name, bool& value)
     return 0;
 }
 
-std::string Parameters::getParameterValueAsString(std::string name)
+std::string Parameters::getParameterValueAsString(std::string name) const
 {
     const auto* ps = getParameterEntryReadOnly(name);
 
