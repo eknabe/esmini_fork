@@ -1521,6 +1521,32 @@ TEST(ParameterTest, ResolveParameterTest)
     ASSERT_EQ(params.ResolveParametersInString(" $turnsignal "), " true ");
 }
 
+TEST(ParameterTest, PreservesPrefixedDeclarationLookup)
+{
+    auto& params = ScenarioReader::parameters;
+    params.Clear();
+    pugi::xml_document doc;
+    ASSERT_TRUE(doc.load_string(R"(
+<ParameterDeclarations>
+    <ParameterDeclaration name="$TargetBrakeRate" parameterType="double" value="8"/>
+    <ParameterDeclaration name="TargetBrakeRate" parameterType="double" value="6"/>
+</ParameterDeclarations>)"));
+    params.addParameterDeclarations(doc.first_child());
+
+    // Preserve scope order even when a declaration name itself contains '$'.
+    EXPECT_EQ(params.getParameter("$TargetBrakeRate"), "6");
+    params.parameterDeclarations_.Parameter.erase(params.parameterDeclarations_.Parameter.begin());
+    EXPECT_EQ(params.getParameter("$TargetBrakeRate"), "8");
+    EXPECT_EQ(params.getParameter("$$TargetBrakeRate"), "8");
+    EXPECT_EQ(params.ResolveParametersInString("$TargetBrakeRate + 1"), "8 + 1");
+    EXPECT_EQ(params.getParameterEntryReadOnly("$TargetBrakeRate"), params.getParameterEntry("$TargetBrakeRate"));
+    double value = 0.0;
+    EXPECT_EQ(params.getParameterValueDouble("$TargetBrakeRate", value), 0);
+    EXPECT_DOUBLE_EQ(value, 8.0);
+    EXPECT_EQ(params.getParameterEntryReadOnly("TargetBrakeRate"), nullptr);
+    params.Clear();
+}
+
 TEST(ParameterTest, ParseParameterTest)
 {
     // Create parameter declarations
@@ -1584,6 +1610,223 @@ TEST(ParameterTest, KeepLastParameterValueTest)
     EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), 0.0, 1e-3);
 
     delete se;
+}
+
+class InstanceParameterTest : public ::testing::Test
+{
+protected:
+    pugi::xml_document doc;
+
+    void SetUp() override
+    {
+        ASSERT_TRUE(doc.load_string(R"(
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-10-21T00:00:00" description="Instance parameters" author="esmini team"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="Width" parameterType="double" value="99"/>
+      <ParameterDeclaration name="GlobalOnly" parameterType="double" value="7"/>
+   </ParameterDeclarations>
+   <CatalogLocations>
+      <VehicleCatalog><Directory path="../../../EnvironmentSimulator/Unittest/xosc"/></VehicleCatalog>
+   </CatalogLocations>
+   <RoadNetwork/>
+   <Entities>
+      <ScenarioObject name="Car1">
+         <CatalogReference catalogName="InstanceParameterCatalog" entryName="car"/>
+      </ScenarioObject>
+      <ScenarioObject name="Car2">
+         <CatalogReference catalogName="InstanceParameterCatalog" entryName="car">
+            <ParameterAssignments><ParameterAssignment parameterRef="Width" value="2.4"/></ParameterAssignments>
+         </CatalogReference>
+      </ScenarioObject>
+      <ScenarioObject name="Car3">
+         <CatalogReference catalogName="InstanceParameterCatalog" entryName="car">
+            <ParameterAssignments><ParameterAssignment parameterRef="Width" value="${$Car2::Width + 0.6}"/></ParameterAssignments>
+         </CatalogReference>
+      </ScenarioObject>
+      <ScenarioObject name="Walker">
+         <Pedestrian name="walker" pedestrianCategory="pedestrian" mass="70">
+            <ParameterDeclarations><ParameterDeclaration name="Width" parameterType="double" value="0.6"/></ParameterDeclarations>
+            <BoundingBox><Center x="0" y="0" z="0.9"/><Dimensions width="$Width" length="0.6" height="1.8"/></BoundingBox>
+            <Properties/>
+         </Pedestrian>
+      </ScenarioObject>
+      <ScenarioObject name="Box">
+         <MiscObject name="box" miscObjectCategory="obstacle" mass="10">
+            <ParameterDeclarations><ParameterDeclaration name="Width" parameterType="double" value="1.2"/></ParameterDeclarations>
+            <BoundingBox><Center x="0" y="0" z="0.5"/><Dimensions width="$Width" length="1" height="1"/></BoundingBox>
+            <Properties/>
+         </MiscObject>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init><Actions>
+         <Private entityRef="Car1"><PrivateAction><TeleportAction><Position>
+            <WorldPosition x="10" y="$Car1::Width" h="0"/>
+         </Position></TeleportAction></PrivateAction></Private>
+         <Private entityRef="Car2"><PrivateAction><TeleportAction><Position>
+            <WorldPosition x="20" y="${$Car2::Width / 2 + 0.5}" h="0"/>
+         </Position></TeleportAction></PrivateAction></Private>
+      </Actions></Init>
+      <StopTrigger><ConditionGroup><Condition name="WidthCheck" delay="0" conditionEdge="none">
+         <ByValueCondition><ParameterCondition parameterRef="Car2::Width" value="2.4" rule="equalTo"/></ByValueCondition>
+      </Condition></ConditionGroup></StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>)"));
+    }
+};
+
+TEST_F(InstanceParameterTest, EffectiveValuesAndExpressions)
+{
+    ScenarioEngine se(doc, true);
+    auto&          params = ScenarioReader::parameters;
+    ASSERT_EQ(se.entities_.object_.size(), 2);
+    EXPECT_NEAR(se.entities_.object_[0]->boundingbox_.dimensions_.width_, 2.0, 1e-6);
+    EXPECT_NEAR(se.entities_.object_[1]->boundingbox_.dimensions_.width_, 2.4, 1e-6);
+    ASSERT_NE(se.entities_.GetObjectByName("Car3"), nullptr);
+    EXPECT_NEAR(se.entities_.GetObjectByName("Car3")->boundingbox_.dimensions_.width_, 3.0, 1e-6);
+    EXPECT_EQ(params.getParameter("$Car1::Width"), "2.0");
+    EXPECT_EQ(params.getParameter("Car2::Width"), "2.4");
+    EXPECT_EQ(params.getParameter("Car2::HalfWidth"), "1.200000");
+    EXPECT_EQ(params.getParameter("Width"), "99");
+    EXPECT_EQ(params.GetNumberOfParameters(), 2);
+    EXPECT_THROW(params.getParameter("Car1::GlobalOnly"), std::runtime_error);
+    EXPECT_THROW(params.getParameter("car::Width"), std::runtime_error);
+    EXPECT_THROW(params.getParameter("Missing::Width"), std::runtime_error);
+    EXPECT_THROW(params.getParameter("Car1::Missing"), std::runtime_error);
+
+    double      width   = 0.0;
+    int         count   = 0;
+    bool        enabled = false;
+    const char* label   = nullptr;
+    EXPECT_EQ(params.getParameterValueDouble("Walker::Width", width), 0);
+    EXPECT_DOUBLE_EQ(width, 0.6);
+    EXPECT_EQ(params.getParameterValue("Box::Width", &width), 0);
+    EXPECT_DOUBLE_EQ(width, 1.2);
+    EXPECT_EQ(params.getParameterValueInt("Car1::Count", count), 0);
+    EXPECT_EQ(count, 4);
+    EXPECT_EQ(params.getParameterValueBool("Car1::Enabled", enabled), 0);
+    EXPECT_TRUE(enabled);
+    EXPECT_EQ(params.getParameterValueString("Car1::Label", label), 0);
+    EXPECT_STREQ(label, "test car");
+    EXPECT_EQ(params.getParameterValueAsString("Car2::Width"), "2.400000");
+    EXPECT_EQ(params.getParameterValueDouble("Missing::Width", width), -1);
+    EXPECT_EQ(params.getParameterValueDouble("Car1::Missing", width), -1);
+    EXPECT_DOUBLE_EQ(width, 1.2);
+    EXPECT_EQ(params.getParameterValueDouble("Car1::Label", width), -1);
+
+    scenario_step(&se, 0.0);
+    EXPECT_NEAR(se.entities_.object_[0]->pos_.GetY(), 2.0, 1e-6);
+    EXPECT_NEAR(se.entities_.object_[1]->pos_.GetY(), 1.7, 1e-6);
+    EXPECT_TRUE(se.GetQuitFlag());
+}
+
+TEST_F(InstanceParameterTest, ReadOnlyAndLifecycle)
+{
+    {
+        ScenarioEngine se(doc, true);
+        auto&          params = ScenarioReader::parameters;
+        const double   value  = 7.0;
+        EXPECT_EQ(params.setParameter("Car1::Width", "7"), -1);
+        EXPECT_EQ(params.setParameterValue("Car1::Width", value), -1);
+        EXPECT_EQ(params.setParameterValue("Car1::Width", &value), -1);
+        EXPECT_EQ(params.setParameterValueByString("Car1::Width", "7"), -1);
+        EXPECT_EQ(params.setParameterValue("Car1::Count", 7), -1);
+        EXPECT_EQ(params.setParameterValue("Car1::Enabled", false), -1);
+        EXPECT_EQ(params.setParameterValue("Car1::Label", "changed"), -1);
+        EXPECT_EQ(params.getParameterEntry("Car1::Width"), nullptr);
+        EXPECT_EQ(params.setParameterValue("$Car1::Width", value), -1);
+        EXPECT_EQ(params.setParameterValue("Width", 100.0), 0);
+        EXPECT_EQ(params.getParameter("Car1::Width"), "2.0");
+        EXPECT_THROW(params.RegisterInstanceParameters("Car1", {}), std::runtime_error);
+    }
+    EXPECT_THROW(ScenarioReader::parameters.getParameter("Car1::Width"), std::runtime_error);
+    auto reference                              = doc.child("OpenSCENARIO").child("Entities").first_child().child("CatalogReference");
+    auto assignment                             = reference.append_child("ParameterAssignments").append_child("ParameterAssignment");
+    assignment.append_attribute("parameterRef") = "Width";
+    assignment.append_attribute("value")        = "4";
+    ScenarioEngine se(doc, true);
+    EXPECT_EQ(ScenarioReader::parameters.getParameter("Car1::Width"), "4");
+}
+
+TEST_F(InstanceParameterTest, InlineVehicle)
+{
+    pugi::xml_document catalog;
+    ASSERT_TRUE(catalog.load_file("../../../EnvironmentSimulator/Unittest/xosc/InstanceParameterCatalog.xosc"));
+    auto car = doc.child("OpenSCENARIO").child("Entities").first_child();
+    car.remove_child("CatalogReference");
+    car.append_copy(catalog.child("OpenSCENARIO").child("Catalog").child("Vehicle"));
+    ScenarioEngine se(doc, true);
+    EXPECT_EQ(ScenarioReader::parameters.getParameter("Car1::Width"), "2.0");
+}
+
+TEST_F(InstanceParameterTest, RejectsForwardAndSelfReferences)
+{
+    auto reference                              = doc.child("OpenSCENARIO").child("Entities").first_child().child("CatalogReference");
+    auto assignment                             = reference.append_child("ParameterAssignments").append_child("ParameterAssignment");
+    assignment.append_attribute("parameterRef") = "Width";
+    assignment.append_attribute("value")        = "$Car2::Width";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+    assignment.attribute("value") = "$Car1::Width";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+}
+
+TEST_F(InstanceParameterTest, RejectsEarlyReferencesAndReservedNames)
+{
+    auto declaration               = doc.child("OpenSCENARIO").child("ParameterDeclarations").first_child();
+    declaration.attribute("value") = "$Car1::Width";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+    declaration.attribute("value") = "99";
+    declaration.attribute("name")  = "Car1::Width";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+    declaration.attribute("name")                                               = "Width";
+    doc.child("OpenSCENARIO").child("Entities").first_child().attribute("name") = "Car::1";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+}
+
+TEST_F(InstanceParameterTest, RejectsQualifiedAssignmentAndActionTargets)
+{
+    auto actions                                      = doc.child("OpenSCENARIO").child("Storyboard").child("Init").child("Actions");
+    auto parameter_action                             = actions.append_child("GlobalAction").append_child("ParameterAction");
+    parameter_action.append_attribute("parameterRef") = "Car1::Width";
+    parameter_action.append_child("SetAction").append_attribute("value") = "7";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+    parameter_action.attribute("parameterRef") = "$Car1::Width";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+    actions.remove_child("GlobalAction");
+    auto assignment = doc.child("OpenSCENARIO")
+                          .child("Entities")
+                          .first_child()
+                          .child("CatalogReference")
+                          .append_child("ParameterAssignments")
+                          .append_child("ParameterAssignment");
+    assignment.append_attribute("parameterRef") = "Car1::Width";
+    assignment.append_attribute("value")        = "7";
+    EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
+}
+
+TEST(InstanceParameterScopeTest, SnapshotExcludesNestedAndGlobalParameters)
+{
+    auto& params = ScenarioReader::parameters;
+    params.Clear();
+    pugi::xml_document doc;
+    ASSERT_TRUE(doc.load_string(R"(
+<Scopes>
+   <Global><ParameterDeclaration name="GlobalOnly" parameterType="double" value="9"/></Global>
+   <Entity><ParameterDeclaration name="Width" parameterType="double" value="2"/></Entity>
+   <Nested><ParameterDeclaration name="NestedOnly" parameterType="double" value="5"/></Nested>
+</Scopes>)"));
+    params.addParameterDeclarations(doc.child("Scopes").child("Global"));
+    params.addParameterDeclarations(doc.child("Scopes").child("Entity"));
+    const auto snapshot = params.CaptureParameterDeclarations(doc.child("Scopes").child("Entity"));
+    params.addParameterDeclarations(doc.child("Scopes").child("Nested"));
+    params.RestoreParameterDeclarations();
+    params.RestoreParameterDeclarations();
+    params.RegisterInstanceParameters("Car", snapshot);
+    EXPECT_EQ(params.getParameter("Car::Width"), "2");
+    EXPECT_THROW(params.getParameter("Car::GlobalOnly"), std::runtime_error);
+    EXPECT_THROW(params.getParameter("Car::NestedOnly"), std::runtime_error);
+    params.Clear();
 }
 
 // Verify modification of variables via actions

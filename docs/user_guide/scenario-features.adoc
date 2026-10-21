@@ -7,6 +7,71 @@ include::nav.adoc_[]
 ifndef::monolith[]
 toc::[]
 endif::monolith[]
+=== Instance parameter references (experimental extension)
+
+esmini supports read-only references to parameters declared on instantiated vehicles,
+pedestrians and miscellaneous objects, using `$instanceName::parameterName`.
+The instance name is the `ScenarioObject` name, not the catalog entry name.
+This is an esmini extension, not standard OpenSCENARIO XML behavior.
+
+[source,xml]
+----
+<ScenarioObject name="Car1">
+    <CatalogReference catalogName="VehicleCatalog" entryName="car_white">
+        <ParameterAssignments>
+            <ParameterAssignment parameterRef="Width" value="2.4"/>
+        </ParameterAssignments>
+    </CatalogReference>
+</ScenarioObject>
+----
+
+If the catalog entry declares a `Width` parameter, `$Car1::Width` resolves to
+`2.4`. References also work inside expressions, for example:
+
+[source,xml]
+----
+<WorldPosition x="10" y="${$Car1::Width / 2 + 0.5}" h="0"/>
+----
+
+Each instance retains its own typed snapshot after assignments and expression
+evaluation. Only parameters declared directly on the entity definition are
+exposed; global, controller and nested trailer parameters are not inherited.
+Inline entity definitions support the same syntax.
+
+The new syntax does not change how existing parameter references work:
+
+* An unqualified reference, such as `$Width`, still resolves using the current
+  parameter scope. While parsing a catalog entry, its local `Width` declaration
+  takes precedence over a global parameter with the same name. After leaving
+  that scope, the local declaration is no longer available as `$Width`;
+  `$Car1::Width` provides explicit access to the retained instance value.
+* Instance parameters are stored separately from global parameters. They do not
+  add entries to the list returned by `SE_GetNumberOfParameters()` and
+  `SE_GetParameterName()`. For example, if the scenario declares two global
+  parameters and instantiates three cars with five local parameters each, the
+  global parameter count remains two, not seventeen. Instance parameters can
+  instead be read by their qualified names, as shown below.
+
+Parameter conditions and typed API getters also accept qualified names without
+the `$` prefix, for example `parameterRef="Car1::Width"` or
+`SE_GetParameterDouble("Car1::Width", &width)`. Failed qualified API lookups and
+attempted writes are logged and return `-1`.
+
+References are available after the entity has been instantiated. All entities
+are available in `Init` and the storyboard. Entity definitions and catalog
+assignments can reference earlier instances, but not themselves or later
+instances. Global declarations and the road network are evaluated before
+entities and cannot use instance references. Missing instances or parameters
+cause an explicit error.
+
+These values are configuration parameters, not live object properties.
+For example, `Width` must be explicitly declared; it does not automatically
+refer to the bounding box or reflect subsequent model scaling. Instance
+parameters cannot be modified by parameter actions, assignments or API setters.
+They are cleared when the scenario is unloaded. The separator `::` is reserved:
+parameter names and scenario-object names must not contain it. Duplicate
+instance namespaces are rejected.
+
 === Speed profile
 (introduced in esmini v2.23.0)
 
@@ -1452,4 +1517,3 @@ Now when we have a complete SUMO configuration, do the following steps in order 
 . Run from esmini root folder:
 +
 `./bin/esmini --window 60 60 800 400 --osc ./resources/xosc/my_sumo.xosc`
-

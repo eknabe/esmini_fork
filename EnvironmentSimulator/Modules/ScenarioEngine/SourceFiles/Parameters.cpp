@@ -56,15 +56,11 @@ void Parameters::RestoreParameterDeclarations()
 
 int Parameters::setParameter(std::string name, std::string value)
 {
-    // If string already present in parameterDeclaration
-    for (size_t i = 0; i < parameterDeclarations_.Parameter.size(); i++)
+    auto* parameter = getParameterEntry(name);
+    if (parameter != nullptr)
     {
-        if (PARAMETER_PREFIX + parameterDeclarations_.Parameter[i].name == name ||  // parameter names should not include prefix
-            parameterDeclarations_.Parameter[i].name == name)                       // But support also parameter name including prefix
-        {
-            parameterDeclarations_.Parameter[i].value._string = value;
-            return 0;
-        }
+        parameter->value._string = value;
+        return 0;
     }
 
     return -1;
@@ -72,15 +68,10 @@ int Parameters::setParameter(std::string name, std::string value)
 
 std::string Parameters::getParameter(std::string name)
 {
-    // If string already present in parameterDeclaration
-    const std::vector<OSCParameterDeclarations::ParameterStruct>& parameters = ScenarioReader::parameters.parameterDeclarations_.Parameter;
-    for (size_t i = 0; i < parameters.size(); i++)
+    const auto* parameter = ScenarioReader::parameters.getParameterEntryReadOnly(name);
+    if (parameter != nullptr)
     {
-        if (PARAMETER_PREFIX + parameters[i].name == name ||  // parameter names should not include prefix
-            parameters[i].name == name)                       // But support also parameter name including prefix
-        {
-            return parameters[i].value._string;
-        }
+        return parameter->value._string;
     }
     LOG_ERROR_AND_QUIT("Failed to resolve parameter {}", name);
 
@@ -89,6 +80,11 @@ std::string Parameters::getParameter(std::string name)
 
 OSCParameterDeclarations::ParameterStruct* Parameters::getParameterEntry(std::string name)
 {
+    if (name.find("::") != std::string::npos)
+    {
+        LOG_ERROR("Instance parameter {} is read-only", name);
+        return nullptr;
+    }
     // If string already present in parameterDeclaration
     for (size_t i = 0; i < parameterDeclarations_.Parameter.size(); i++)
     {
@@ -100,6 +96,72 @@ OSCParameterDeclarations::ParameterStruct* Parameters::getParameterEntry(std::st
     }
 
     return 0;
+}
+
+const OSCParameterDeclarations::ParameterStruct* Parameters::getParameterEntryReadOnly(std::string name) const
+{
+    const std::string reference = name;
+    if (!name.empty() && name.front() == PARAMETER_PREFIX)
+    {
+        name.erase(0, 1);
+    }
+
+    const auto                      separator    = name.find("::");
+    const OSCParameterDeclarations* declarations = &parameterDeclarations_;
+    if (separator != std::string::npos)
+    {
+        const auto instance = instance_parameters_.find(name.substr(0, separator));
+        if (instance == instance_parameters_.end())
+        {
+            LOG_ERROR("Failed to resolve instance parameter {}: instance {} is not available (forward/self references are not supported)",
+                      name,
+                      name.substr(0, separator));
+            return nullptr;
+        }
+        declarations = &instance->second;
+        name.erase(0, separator + 2);
+    }
+
+    const std::string& lookup_name = separator == std::string::npos ? reference : name;
+    for (const auto& parameter : declarations->Parameter)
+    {
+        if (parameter.name == lookup_name || PARAMETER_PREFIX + parameter.name == lookup_name)
+        {
+            return &parameter;
+        }
+    }
+    if (separator != std::string::npos)
+    {
+        LOG_ERROR("Failed to resolve instance parameter {}: {} is not declared on the instance", reference, name);
+    }
+    return nullptr;
+}
+
+OSCParameterDeclarations Parameters::CaptureParameterDeclarations(pugi::xml_node declarations) const
+{
+    OSCParameterDeclarations snapshot;
+    for (auto declaration : declarations.children("ParameterDeclaration"))
+    {
+        const auto* parameter = getParameterEntryReadOnly(declaration.attribute("name").value());
+        if (parameter == nullptr)
+        {
+            LOG_ERROR_AND_QUIT("Failed to capture instance parameter {}", declaration.attribute("name").value());
+        }
+        snapshot.Parameter.push_back(*parameter);
+    }
+    return snapshot;
+}
+
+void Parameters::RegisterInstanceParameters(const std::string& name, const OSCParameterDeclarations& declarations)
+{
+    if (name.empty() || name.find("::") != std::string::npos)
+    {
+        LOG_ERROR_AND_QUIT("Invalid instance parameter namespace {}: expected a non-empty name without '::'", name);
+    }
+    if (!instance_parameters_.emplace(name, declarations).second)
+    {
+        LOG_ERROR_AND_QUIT("Duplicate instance parameter namespace {}", name);
+    }
 }
 
 int Parameters::GetNumberOfParameters()
@@ -161,7 +223,7 @@ int Parameters::setParameterValue(std::string name, const void* value)
 
 int Parameters::getParameterValue(std::string name, void* value)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps)
     {
@@ -195,7 +257,7 @@ int Parameters::getParameterValue(std::string name, void* value)
 
 int Parameters::getParameterValueInt(std::string name, int& value)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps || ps->type != OSCParameterDeclarations::ParameterType::PARAM_TYPE_INTEGER)
     {
@@ -209,7 +271,7 @@ int Parameters::getParameterValueInt(std::string name, int& value)
 
 int Parameters::getParameterValueDouble(std::string name, double& value)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps || ps->type != OSCParameterDeclarations::ParameterType::PARAM_TYPE_DOUBLE)
     {
@@ -223,7 +285,7 @@ int Parameters::getParameterValueDouble(std::string name, double& value)
 
 int Parameters::getParameterValueString(std::string name, const char*& value)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps || ps->type != OSCParameterDeclarations::ParameterType::PARAM_TYPE_STRING)
     {
@@ -237,7 +299,7 @@ int Parameters::getParameterValueString(std::string name, const char*& value)
 
 int Parameters::getParameterValueBool(std::string name, bool& value)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps || ps->type != OSCParameterDeclarations::ParameterType::PARAM_TYPE_BOOL)
     {
@@ -251,7 +313,7 @@ int Parameters::getParameterValueBool(std::string name, bool& value)
 
 std::string Parameters::getParameterValueAsString(std::string name)
 {
-    OSCParameterDeclarations::ParameterStruct* ps = getParameterEntry(name);
+    const auto* ps = getParameterEntryReadOnly(name);
 
     if (!ps)
     {
@@ -517,6 +579,10 @@ void Parameters::parseParameterDeclarations(pugi::xml_node declarationsNode, OSC
 
         param.name     = pdChild.attribute("name").value();
         param.variable = is_variable;
+        if (param.name.find("::") != std::string::npos)
+        {
+            LOG_ERROR_AND_QUIT("Invalid parameter name {}: '::' is reserved for instance parameter references", param.name);
+        }
 
         // Check for catalog parameter assignements, overriding default value
         // Start from end of parameter list, in case of duplicates we want the most recent
@@ -597,6 +663,7 @@ void Parameters::parseParameterDeclarations(pugi::xml_node declarationsNode, OSC
 
 void Parameters::Clear()
 {
+    instance_parameters_.clear();
     parameterDeclarations_.Parameter.clear();
     while (!paramDeclarationsSize_.empty())
     {
