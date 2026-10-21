@@ -109,6 +109,13 @@ class EsminiSchemaTest(unittest.TestCase):
         self.assertIsInstance(
             validator.get_scheme("test.xosc", str(OUTPUT)), xmlschema.XMLSchema11
         )
+        self.assertIsInstance(
+            validator.get_scheme(
+                "test.xodr",
+                str(SCHEMA_DIR / "OpenDRIVE_1.8" / "local_schema" / "OpenDRIVE_Core.xsd"),
+            ),
+            xmlschema.XMLSchema11,
+        )
         self.assertEqual(validator.count_of_files_failed, 0)
 
     def test_cli_follows_schema_hint_and_preserves_fallback(self):

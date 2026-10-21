@@ -285,7 +285,7 @@ jobs:
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
         run: |
           python3 -m unittest discover -s test -p test_esmini_schema.py
-          python3 scripts/run_schema_comply.py resources EnvironmentSimulator
+          python3 scripts/run_schema_comply.py resources EnvironmentSimulator --silent
 
       - name: Run C# wrapper check
         if: runner.os == 'Windows' && matrix.configuration == 'Release'

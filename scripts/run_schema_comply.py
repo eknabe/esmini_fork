@@ -166,12 +166,13 @@ class XmlValidation:
                     "{http://www.w3.org/2007/XMLSchema-versioning}minVersion"
                 )
 
-                if schema_min_version == "1.1":
+                # Legacy OpenDRIVE 1.8 schemas signal XSD 1.1 through the XML declaration.
+                if schema_min_version == "1.1" or tmp_tree.docinfo.xml_version == "1.1":
                     my_schema = xmlschema.XMLSchema11(schema_file)
                 else:
                     my_schema = xmlschema.XMLSchema(schema_file)
             except xmlschema.validators.exceptions.XMLSchemaParseError as e:
-                error_msg = "{}: Schema error {}. XSD 1.1 schemas must declare vc:minVersion=\"1.1\".".format(
+                error_msg = "{}: Schema error {}".format(
                     xml_file, e.message
                 )
                 self.log_error(error_msg, xml_file)
