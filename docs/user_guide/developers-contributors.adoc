@@ -198,6 +198,19 @@ Run the XML validation tests:
 
 where path can be an XML file or a directory. Any directory subfolders will be included recursively.
 
+Official schemas are used by default, even if the XML specifies another schema
+location. To opt into the experimental esmini instance-parameter extension for
+OpenSCENARIO 1.4, add `--esmini-extensions`:
+
+`python3 scripts/run_schema_comply.py --esmini-extensions resources/xosc/my_scenario.xosc`
+
+This selects `resources/schema/OpenSCENARIOv1.4-esmini.xsd` for 1.4 files only.
+Other OpenSCENARIO versions and OpenDRIVE keep their official schemas.
+See link:scenario-features.html#_opt_in_xml_schema_validation[Opt-in XML schema validation]
+for the extension grammar and test command. The extension uses an XSD 1.1
+`xsd:override` wrapper; the script selects `xmlschema.XMLSchema11` automatically.
+The official schema remains XSD 1.0.
+
 Example 1, check single file:
 
 `python3 scripts/run_schema_comply.py resources/xosc/cut-in.xosc`
@@ -349,4 +362,3 @@ Two tips to get the text:
 2. Press `H` (`shift-h`) key in the application window to output the same help info to console
 
 By adding the option to the .txt files, the option will automatically be added in next generation of link:command-reference.html#_command_reference[Command reference] as well.
-

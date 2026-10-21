@@ -13,7 +13,6 @@ import xmlschema
 from lxml import etree
 import argparse
 import os
-import sys
 from pathlib import Path
 
 SCHEMA_MAPPINGS = {
@@ -36,7 +35,8 @@ SCHEMA_MAPPINGS = {
 
 
 class XmlValidation:
-    def __init__(self):
+    def __init__(self, esmini_extensions=False):
+        self.esmini_extensions = esmini_extensions
         self.xml_file_names = []
         # default location of schema files is under the resources folder, next to the script folder
         self.xsd_files_path = os.path.join(os.path.dirname(__file__), "../resources/schema")
@@ -100,6 +100,8 @@ class XmlValidation:
 
     def get_xsd_to_validate(self, revMinor, file):
         type_ = self.get_xml_type(file)
+        if self.esmini_extensions and type_ == "xosc" and revMinor == "4":
+            return os.path.join(self.xsd_files_path, "OpenSCENARIOv1.4-esmini.xsd")
         if type_ in SCHEMA_MAPPINGS and revMinor in SCHEMA_MAPPINGS[type_]:
             return os.path.join(self.xsd_files_path, SCHEMA_MAPPINGS[type_][revMinor])
         else:
@@ -225,14 +227,16 @@ class XmlValidation:
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 2:
-        print(
-            "Usage: python run_schema_comply.py <path1> [path2] [path3] ...\n\n   path can be file or directory"
-        )
-        exit(-1)
-
-    validator = XmlValidation()
-    validator.main(sys.argv[1:])
+    parser = argparse.ArgumentParser(description="Validate OpenSCENARIO and OpenDRIVE XML")
+    parser.add_argument(
+        "--esmini-extensions",
+        action="store_true",
+        help="use the esmini extension schema for OpenSCENARIO 1.4 only",
+    )
+    parser.add_argument("paths", nargs="+", help="files or directories to validate")
+    args = parser.parse_args()
+    validator = XmlValidation(esmini_extensions=args.esmini_extensions)
+    validator.main(args.paths)
     validator.print_errors()
 
     if (

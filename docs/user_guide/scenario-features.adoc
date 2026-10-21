@@ -72,6 +72,65 @@ They are cleared when the scenario is unloaded. The separator `::` is reserved:
 parameter names and scenario-object names must not contain it. Duplicate
 instance namespaces are rejected.
 
+==== Opt-in XML schema validation
+
+The official OpenSCENARIO 1.4 schema does not permit `::` in numeric parameter
+references or expressions. Use the separate
+`resources/schema/OpenSCENARIOv1.4-esmini.xsd` schema to validate this experimental
+extension. The official schema is not modified. Passing the extension schema
+does not imply conformance to unmodified ASAM OpenSCENARIO 1.4.
+
+The extension is a small XSD 1.1 wrapper. It loads the original schema with
+`xsd:override` and replaces only the `parameter` and `expression` type
+definitions. An XSD 1.1 validator is required for the extension; the official
+schema still requires only XSD 1.0. The Python `xmlschema` package supports the
+wrapper, but the `lxml` schema validator does not.
+
+For example, a scenario in `resources/xosc` can select the extension schema with:
+
+[source,xml]
+----
+<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../schema/OpenSCENARIOv1.4-esmini.xsd">
+----
+
+Keep `FileHeader` at `revMajor="1"` and `revMinor="4"`. The schema location is a
+hint; tools that explicitly select a schema can ignore it. The esmini validator
+requires an explicit opt-in, irrespective of that hint:
+
+[source]
+----
+python scripts/run_schema_comply.py --esmini-extensions resources/xosc/my_scenario.xosc
+----
+
+Without the option, validation continues to use official schemas. The option
+only changes validation of OpenSCENARIO 1.4; other versions and OpenDRIVE are
+unaffected.
+
+Both names in a qualified reference must match `[A-Za-z_][A-Za-z0-9_]*`.
+This restriction applies to qualified access, not to unrelated scenario-object
+names. Both `$Car1::Width` and `${$Car1::Width / 2}` are supported. Single colons
+are not supported. `::` is part of an attribute value, not an XML namespace.
+
+The extension changes only the `parameter` and `expression` lexical patterns.
+As with the official schema, the expression pattern is not a complete grammar.
+esmini checks reference syntax, existence, scope and evaluation; schema validation
+alone cannot establish these semantics.
+
+For standard scenarios, select `OpenSCENARIOv1.4.xsd` instead. For extension
+scenarios, select only `OpenSCENARIOv1.4-esmini.xsd`, not both schemas. Editors
+that honor the schema-location hint also need XSD 1.1 support.
+
+No schema generation is needed. Run the schema boundary tests with:
+
+[source]
+----
+python -m unittest discover -s test -p test_esmini_schema.py
+----
+
+CI verifies the wrapper structure and tests the official/extended validation
+boundary, including explicit command-line opt-in.
+
 === Speed profile
 (introduced in esmini v2.23.0)
 

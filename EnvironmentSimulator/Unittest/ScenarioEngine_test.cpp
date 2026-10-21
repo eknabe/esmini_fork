@@ -1771,6 +1771,17 @@ TEST_F(InstanceParameterTest, RejectsForwardAndSelfReferences)
     EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
 }
 
+TEST_F(InstanceParameterTest, RejectsMalformedQualifiedReferences)
+{
+    ScenarioEngine se(doc, true);
+    auto&          params = ScenarioReader::parameters;
+    for (const std::string reference : {"Car1:::Width", "Car1::Width::Extra", "Car1::", "1Car::Width", "Car-1::Width", "Car1::1Width"})
+    {
+        EXPECT_THROW(params.getParameter(reference), std::runtime_error);
+    }
+    EXPECT_EQ(params.getParameter("Car1::Width"), "2.0");
+}
+
 TEST_F(InstanceParameterTest, RejectsEarlyReferencesAndReservedNames)
 {
     auto declaration               = doc.child("OpenSCENARIO").child("ParameterDeclarations").first_child();

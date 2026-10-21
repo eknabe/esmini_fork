@@ -111,6 +111,16 @@ const OSCParameterDeclarations::ParameterStruct* Parameters::getParameterEntryRe
     const OSCParameterDeclarations* declarations = &parameterDeclarations_;
     if (separator != std::string::npos)
     {
+        const auto is_identifier = [](const std::string& identifier)
+        {
+            return identifier.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_") == 0 &&
+                   identifier.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789") == std::string::npos;
+        };
+        if (!is_identifier(name.substr(0, separator)) || !is_identifier(name.substr(separator + 2)))
+        {
+            LOG_ERROR("Invalid instance parameter reference {}: expected $instanceName::parameterName with identifier names", reference);
+            return nullptr;
+        }
         const auto instance = instance_parameters_.find(name.substr(0, separator));
         if (instance == instance_parameters_.end())
         {
