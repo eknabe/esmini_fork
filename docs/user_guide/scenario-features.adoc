@@ -96,16 +96,23 @@ For example, a scenario in `resources/xosc` can select the extension schema with
 
 Keep `FileHeader` at `revMajor="1"` and `revMinor="4"`. The schema location is a
 hint; tools that explicitly select a schema can ignore it. The esmini validator
-requires an explicit opt-in, irrespective of that hint:
+honors this hint, resolving local paths relative to the scenario file:
 
 [source]
 ----
-python scripts/run_schema_comply.py --esmini-extensions resources/xosc/my_scenario.xosc
+python scripts/run_schema_comply.py resources/xosc/my_scenario.xosc
 ----
 
-Without the option, validation continues to use official schemas. The option
-only changes validation of OpenSCENARIO 1.4; other versions and OpenDRIVE are
-unaffected.
+An explicitly referenced schema takes precedence over version-based selection.
+Missing referenced schemas produce a warning and fall back to the official
+version-based schema. Invalid existing schemas remain errors.
+Add `--silent` to suppress missing-schema fallback warnings without hiding
+validation results or errors.
+Local paths and local `file:` URIs are supported;
+remote schema-location URLs are not downloaded.
+
+Without a schema-location hint, official schemas are selected by version.
+Scenarios using the extension must reference its schema explicitly.
 
 Both names in a qualified reference must match `[A-Za-z_][A-Za-z0-9_]*`.
 This restriction applies to qualified access, not to unrelated scenario-object
@@ -129,7 +136,7 @@ python -m unittest discover -s test -p test_esmini_schema.py
 ----
 
 CI verifies the wrapper structure and tests the official/extended validation
-boundary, including explicit command-line opt-in.
+boundary, including schema-location resolution and command-line fallback.
 
 === Speed profile
 (introduced in esmini v2.23.0)

@@ -198,14 +198,20 @@ Run the XML validation tests:
 
 where path can be an XML file or a directory. Any directory subfolders will be included recursively.
 
-Official schemas are used by default, even if the XML specifies another schema
-location. To opt into the experimental esmini instance-parameter extension for
-OpenSCENARIO 1.4, add `--esmini-extensions`:
+The script honors `xsi:noNamespaceSchemaLocation`, resolving relative schema paths
+against the XML file's directory, not the working directory. Absolute local paths
+and local `file:` URIs are also supported. Remote schema URLs are not downloaded.
+A missing referenced schema produces a warning and falls back to the official
+schema selected by file version. Invalid existing schemas remain errors.
+Use `--silent` to suppress these fallback warnings. Validation results, errors
+and the final summary remain visible:
 
-`python3 scripts/run_schema_comply.py --esmini-extensions resources/xosc/my_scenario.xosc`
+`python3 scripts/run_schema_comply.py --silent resources EnvironmentSimulator`
 
-This selects `resources/schema/OpenSCENARIOv1.4-esmini.xsd` for 1.4 files only.
-Other OpenSCENARIO versions and OpenDRIVE keep their official schemas.
+Without a schema-location hint, official schemas are selected by version.
+Scenarios using the experimental esmini instance-parameter extension must
+reference `resources/schema/OpenSCENARIOv1.4-esmini.xsd` through
+`xsi:noNamespaceSchemaLocation`, with a path relative to the scenario file.
 See link:scenario-features.html#_opt_in_xml_schema_validation[Opt-in XML schema validation]
 for the extension grammar and test command. The extension uses an XSD 1.1
 `xsd:override` wrapper; the script selects `xmlschema.XMLSchema11` automatically.

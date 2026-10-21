@@ -14,6 +14,8 @@ from lxml import etree
 import argparse
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 SCHEMA_MAPPINGS = {
     "xosc": {
@@ -35,8 +37,8 @@ SCHEMA_MAPPINGS = {
 
 
 class XmlValidation:
-    def __init__(self, esmini_extensions=False):
-        self.esmini_extensions = esmini_extensions
+    def __init__(self, silent=False):
+        self.silent = silent
         self.xml_file_names = []
         # default location of schema files is under the resources folder, next to the script folder
         self.xsd_files_path = os.path.join(os.path.dirname(__file__), "../resources/schema")
@@ -100,8 +102,6 @@ class XmlValidation:
 
     def get_xsd_to_validate(self, revMinor, file):
         type_ = self.get_xml_type(file)
-        if self.esmini_extensions and type_ == "xosc" and revMinor == "4":
-            return os.path.join(self.xsd_files_path, "OpenSCENARIOv1.4-esmini.xsd")
         if type_ in SCHEMA_MAPPINGS and revMinor in SCHEMA_MAPPINGS[type_]:
             return os.path.join(self.xsd_files_path, SCHEMA_MAPPINGS[type_][revMinor])
         else:
@@ -113,30 +113,65 @@ class XmlValidation:
             self.log_error(error_msg, file)
             return None
 
+    def get_referenced_schema(self, xml_file):
+        location = self.root.get(
+            "{http://www.w3.org/2001/XMLSchema-instance}noNamespaceSchemaLocation"
+        )
+        if location is None:
+            return None
+        location = location.strip()
+        if not location:
+            self.log_error(f"{xml_file}: Empty noNamespaceSchemaLocation", xml_file)
+            return None
+        uri = urlsplit(location)
+        if uri.scheme.lower() == "file":
+            if uri.netloc not in ("", "localhost") or uri.query or uri.fragment:
+                self.log_error(f"{xml_file}: Unsupported schema URI {location}", xml_file)
+                return None
+            schema = Path(url2pathname(uri.path))
+        elif uri.scheme and not Path(location).is_absolute():
+            self.log_error(
+                f"{xml_file}: Only local schema paths and file URIs are supported: {location}",
+                xml_file,
+            )
+            return None
+        else:
+            schema = Path(location)
+        if not schema.is_absolute():
+            schema = Path(xml_file).resolve().parent / schema
+        if not schema.is_file():
+            if not self.silent:
+                print(
+                    f"[WARNING] {xml_file}: Referenced schema not found: {schema}. "
+                    "Falling back to the version-based schema.",
+                    flush=True,
+                )
+            return None
+        return str(schema.resolve())
+
     def get_scheme(self, xml_file, schema_file):
         if schema_file is not None:
             try:
                 tmp_tree = etree.parse(schema_file)
-            except etree.ParseError as e:
+            except (etree.ParseError, OSError) as e:
                 error_msg = "{}: Schema {} parsing error: {}".format(
-                    xml_file, os.path.basename(schema_file), e.msg
+                    xml_file, os.path.basename(schema_file), str(e)
                 )
                 self.log_error(error_msg, xml_file)
                 return None
 
             try:
                 root = tmp_tree.getroot()
-                schema_xml_version = tmp_tree.docinfo.xml_version
                 schema_min_version = root.attrib.get(
                     "{http://www.w3.org/2007/XMLSchema-versioning}minVersion"
                 )
 
-                if schema_xml_version == "1.1" or schema_min_version == "1.1":
+                if schema_min_version == "1.1":
                     my_schema = xmlschema.XMLSchema11(schema_file)
                 else:
                     my_schema = xmlschema.XMLSchema(schema_file)
             except xmlschema.validators.exceptions.XMLSchemaParseError as e:
-                error_msg = "{}: Schema error {}. Update xml version to 1.1?".format(
+                error_msg = "{}: Schema error {}. XSD 1.1 schemas must declare vc:minVersion=\"1.1\".".format(
                     xml_file, e.message
                 )
                 self.log_error(error_msg, xml_file)
@@ -220,6 +255,16 @@ class XmlValidation:
         self.set_xml_files_to_validate(paths)
         for file in self.get_xml_files_to_validate():
             if self.open_file(file):
+                failures_before = self.count_of_files_failed
+                if self.root.get(
+                    "{http://www.w3.org/2001/XMLSchema-instance}noNamespaceSchemaLocation"
+                ) is not None:
+                    schema = self.get_referenced_schema(file)
+                    if schema is not None:
+                        self.validate(file, schema)
+                        continue
+                    if self.count_of_files_failed != failures_before:
+                        continue
                 revMinor = self.get_xml_header_minor_revision(file)
                 if revMinor is not None:
                     self.validate(file, self.get_xsd_to_validate(revMinor, file))
@@ -229,13 +274,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Validate OpenSCENARIO and OpenDRIVE XML")
     parser.add_argument(
-        "--esmini-extensions",
+        "--silent",
         action="store_true",
-        help="use the esmini extension schema for OpenSCENARIO 1.4 only",
+        help="suppress missing-schema fallback warnings; validation results and errors remain visible",
     )
     parser.add_argument("paths", nargs="+", help="files or directories to validate")
     args = parser.parse_args()
-    validator = XmlValidation(esmini_extensions=args.esmini_extensions)
+    validator = XmlValidation(silent=args.silent)
     validator.main(args.paths)
     validator.print_errors()
 

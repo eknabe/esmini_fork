@@ -2,6 +2,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 import xmlschema
@@ -85,22 +87,31 @@ class EsminiSchemaTest(unittest.TestCase):
                 self.assertEqual(self.extended.is_valid(document), extended)
                 self.assertEqual(self.lxml_standard.validate(document), standard)
 
-    def test_schema_selection_is_explicit_and_version_specific(self):
+    def test_default_schema_selection_is_version_specific(self):
         standard = XmlValidation()
-        extended = XmlValidation(esmini_extensions=True)
         self.assertEqual(
             Path(standard.get_xsd_to_validate("4", "test.xosc")).resolve(), SOURCE
         )
-        self.assertEqual(
-            Path(extended.get_xsd_to_validate("4", "test.xosc")).resolve(), OUTPUT
-        )
-        for revision, filename in (("3", "test.xosc"), ("4", "test.xodr")):
+        for revision, filename, schema in (
+            ("3", "test.xosc", "OpenSCENARIOv1.3.xsd"),
+            ("4", "test.xodr", "OpenDRIVE_1.4H.xsd"),
+        ):
             self.assertEqual(
-                standard.get_xsd_to_validate(revision, filename),
-                extended.get_xsd_to_validate(revision, filename),
+                Path(standard.get_xsd_to_validate(revision, filename)).resolve(),
+                SCHEMA_DIR / schema,
             )
 
-    def test_cli_requires_explicit_opt_in(self):
+    def test_validator_class_matches_xsd_version(self):
+        validator = XmlValidation()
+        self.assertIsInstance(
+            validator.get_scheme("test.xosc", str(SOURCE)), xmlschema.XMLSchema10
+        )
+        self.assertIsInstance(
+            validator.get_scheme("test.xosc", str(OUTPUT)), xmlschema.XMLSchema11
+        )
+        self.assertEqual(validator.count_of_files_failed, 0)
+
+    def test_cli_follows_schema_hint_and_preserves_fallback(self):
         document = """<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
             xsi:noNamespaceSchemaLocation="OpenSCENARIOv1.4-esmini.xsd">
             <FileHeader revMajor="1" revMinor="4" date="2026-10-21T00:00:00"
@@ -115,11 +126,22 @@ class EsminiSchemaTest(unittest.TestCase):
         script = SOURCE.parents[2] / "scripts" / "run_schema_comply.py"
         with tempfile.TemporaryDirectory() as directory:
             scenario = Path(directory) / "qualified.xosc"
-            scenario.write_text(document, encoding="utf-8")
-            for options, expected in (([], 1), (["--esmini-extensions"], 0)):
-                with self.subTest(options=options):
+            for hint, expected in (
+                (OUTPUT.as_uri(), 0),
+                (SOURCE.as_uri(), 1),
+                ("missing.xsd", 1),
+                (None, 1),
+            ):
+                with self.subTest(hint=hint):
+                    root = etree.fromstring(document.encode())
+                    key = "{http://www.w3.org/2001/XMLSchema-instance}noNamespaceSchemaLocation"
+                    if hint is None:
+                        del root.attrib[key]
+                    else:
+                        root.set(key, hint)
+                    scenario.write_bytes(etree.tostring(root))
                     result = subprocess.run(
-                        [sys.executable, str(script), *options, str(scenario)],
+                        [sys.executable, str(script), str(scenario)],
                         capture_output=True,
                         text=True,
                         check=False,
@@ -127,6 +149,115 @@ class EsminiSchemaTest(unittest.TestCase):
                     self.assertEqual(
                         result.returncode, expected, result.stdout + result.stderr
                     )
+                    if hint == "missing.xsd":
+                        self.assertIn("[WARNING]", result.stdout)
+                        self.assertIn("Falling back", result.stdout)
+                    if hint in ("missing.xsd", None):
+                        root.find(".//SimulationTimeCondition").set("value", "2.4")
+                        scenario.write_bytes(etree.tostring(root))
+                        result = subprocess.run(
+                            [sys.executable, str(script), str(scenario)],
+                            capture_output=True, text=True, check=False,
+                        )
+                        self.assertEqual(
+                            result.returncode, 0, result.stdout + result.stderr
+                        )
+
+    def test_missing_schema_fallback_uses_file_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for revision, expected in (("3", 1), ("4", 1), ("99", 0)):
+                with self.subTest(revision=revision):
+                    scenario = Path(directory) / "example.xosc"
+                    scenario.write_text(
+                        '<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+                        'xsi:noNamespaceSchemaLocation="OpenSCENARIO.xsd">'
+                        f'<FileHeader revMajor="1" revMinor="{revision}" '
+                        'date="2026-10-21T00:00:00" description="Test" author="esmini"/>'
+                        '<CatalogLocations/><RoadNetwork/><Entities/>'
+                        '<Storyboard><Init><Actions/></Init><StopTrigger/></Storyboard>'
+                        '</OpenSCENARIO>',
+                        encoding="utf-8",
+                    )
+                    validator = XmlValidation()
+                    output = StringIO()
+                    with redirect_stdout(output):
+                        validator.main([str(scenario)])
+                    self.assertIn("[WARNING]", output.getvalue())
+                    self.assertEqual(validator.count_of_files_validated, expected)
+                    self.assertEqual(validator.count_of_files_failed, 1 - expected)
+
+    def test_local_schema_resolution_and_errors(self):
+        key = "{http://www.w3.org/2001/XMLSchema-instance}noNamespaceSchemaLocation"
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            schemas = base / "schemas"
+            schemas.mkdir()
+            schema = schemas / "custom schema.xsd"
+            schema.write_text(
+                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
+                '<xs:element name="example" type="xs:string"/></xs:schema>',
+                encoding="utf-8",
+            )
+            scenario = base / "example.xosc"
+            for hint in ("schemas/custom schema.xsd", str(schema), schema.as_uri()):
+                with self.subTest(hint=hint):
+                    root = etree.Element(
+                        "example",
+                        nsmap={"other": "http://www.w3.org/2001/XMLSchema-instance"},
+                    )
+                    root.set(key, hint)
+                    scenario.write_bytes(etree.tostring(root))
+                    validator = XmlValidation()
+                    validator.main([str(scenario)])
+                    self.assertEqual(validator.count_of_files_validated, 1)
+                    self.assertEqual(validator.count_of_files_failed, 0)
+            for hint in ("", "https://example.invalid/schema.xsd"):
+                with self.subTest(hint=hint):
+                    root.set(key, hint)
+                    scenario.write_bytes(etree.tostring(root))
+                    validator = XmlValidation()
+                    validator.main([str(scenario)])
+                    self.assertEqual(validator.count_of_files_validated, 0)
+                    self.assertEqual(validator.count_of_files_failed, 1)
+                    self.assertTrue(validator.errors)
+
+    def test_silent_cli_suppresses_warnings_but_preserves_results_and_errors(self):
+        script = SOURCE.parents[2] / "scripts" / "run_schema_comply.py"
+        with tempfile.TemporaryDirectory() as directory:
+            scenario = Path(directory) / "example.xosc"
+            for revision, expected, marker in (("4", 0, "[OK]"), ("99", 1, "[NOT OK]")):
+                with self.subTest(revision=revision):
+                    scenario.write_text(
+                        '<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+                        'xsi:noNamespaceSchemaLocation="OpenSCENARIO.xsd">'
+                        f'<FileHeader revMajor="1" revMinor="{revision}" '
+                        'date="2026-10-21T00:00:00" description="Test" author="esmini"/>'
+                        '<CatalogLocations/><RoadNetwork/><Entities/>'
+                        '<Storyboard><Init><Actions/></Init><StopTrigger/></Storyboard>'
+                        '</OpenSCENARIO>',
+                        encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        [sys.executable, str(script), "--silent", str(scenario)],
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                    self.assertNotIn("[WARNING]", result.stdout)
+                    self.assertIn(marker, result.stdout)
+                    self.assertIn("files validated", result.stdout)
+
+    def test_invalid_schema_is_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            schema = Path(directory) / "broken.xsd"
+            for content in (
+                "not XML",
+                '<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"><xsd:unknown/></xsd:schema>',
+            ):
+                with self.subTest(content=content):
+                    schema.write_text(content, encoding="utf-8")
+                    validator = XmlValidation()
+                    self.assertIsNone(validator.get_scheme("example.xosc", str(schema)))
+                    self.assertEqual(validator.count_of_files_failed, 1)
 
 
 if __name__ == "__main__":
