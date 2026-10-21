@@ -14,6 +14,7 @@ from lxml import etree
 import argparse
 import os
 from pathlib import Path
+from itertools import islice
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
@@ -37,8 +38,9 @@ SCHEMA_MAPPINGS = {
 
 
 class XmlValidation:
-    def __init__(self, silent=False):
+    def __init__(self, silent=False, fail_fast=False):
         self.silent = silent
+        self.fail_fast = fail_fast
         self.xml_file_names = []
         # default location of schema files is under the resources folder, next to the script folder
         self.xsd_files_path = os.path.join(os.path.dirname(__file__), "../resources/schema")
@@ -184,7 +186,8 @@ class XmlValidation:
         if my_schema is not None:
             parser = etree.XMLParser(recover=False)
             document_tree = etree.parse(xml_file, parser)
-            errors = list(my_schema.iter_errors(document_tree))
+            validation_errors = my_schema.iter_errors(document_tree)
+            errors = list(islice(validation_errors, 1) if self.fail_fast else validation_errors)
 
             if not len(errors) == 0:
                 print(f"[NOT OK] {xml_file}", flush=True)
@@ -255,6 +258,8 @@ class XmlValidation:
         self.validate_argument(paths)
         self.set_xml_files_to_validate(paths)
         for file in self.get_xml_files_to_validate():
+            if self.fail_fast and self.count_of_files_failed > 0:
+                break
             if self.open_file(file):
                 failures_before = self.count_of_files_failed
                 if self.root.get(
@@ -280,8 +285,13 @@ if __name__ == "__main__":
         help="suppress missing-schema fallback warnings; validation results and errors remain visible",
     )
     parser.add_argument("paths", nargs="+", help="files or directories to validate")
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="stop at the first validation error, without checking remaining files",
+    )
     args = parser.parse_args()
-    validator = XmlValidation(silent=args.silent)
+    validator = XmlValidation(silent=args.silent, fail_fast=args.fail_fast)
     validator.main(args.paths)
     validator.print_errors()
 

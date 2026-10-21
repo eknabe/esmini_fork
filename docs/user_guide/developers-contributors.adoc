@@ -208,6 +208,14 @@ and the final summary remain visible:
 
 `python3 scripts/run_schema_comply.py --silent resources EnvironmentSimulator`
 
+By default, validation reports all errors and continues through all files.
+Use `--fail-fast` to stop at the first error, including XML parsing, schema
+selection or schema loading errors. Remaining files are not checked; the error
+and summary are still printed and the exit code is nonzero. Warnings do not
+stop validation. This option can be combined with `--silent`:
+
+`python3 scripts/run_schema_comply.py --fail-fast --silent resources EnvironmentSimulator`
+
 Without a schema-location hint, official schemas are selected by version.
 Scenarios using the experimental esmini instance-parameter extension must
 reference `resources/schema/OpenSCENARIOv1.4-esmini.xsd` through

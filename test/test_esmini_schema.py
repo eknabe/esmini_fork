@@ -266,6 +266,59 @@ class EsminiSchemaTest(unittest.TestCase):
                     self.assertIsNone(validator.get_scheme("example.xosc", str(schema)))
                     self.assertEqual(validator.count_of_files_failed, 1)
 
+    def test_fail_fast_stops_on_first_error_and_default_continues(self):
+        script = SOURCE.parents[2] / "scripts" / "run_schema_comply.py"
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            schema = base / "example.xsd"
+            schema.write_text(
+                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
+                '<xs:element name="example"><xs:complexType>'
+                '<xs:attribute name="first" type="xs:int" use="required"/>'
+                '<xs:attribute name="second" type="xs:int" use="required"/>'
+                '</xs:complexType></xs:element></xs:schema>',
+                encoding="utf-8",
+            )
+            valid = (
+                '<example xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+                'xsi:noNamespaceSchemaLocation="example.xsd" first="1" second="2"/>'
+            )
+            before = base / "before.xosc"
+            failed = base / "failed.xosc"
+            after = base / "after.xosc"
+            before.write_text(valid, encoding="utf-8")
+            after.write_text(valid, encoding="utf-8")
+            for content in (
+                valid.replace('first="1" second="2"', 'first="bad" second="bad"'),
+                "not XML",
+                "<OpenSCENARIO/>",
+                '<OpenSCENARIO><FileHeader revMinor="99"/></OpenSCENARIO>',
+                valid.replace("example.xsd", "broken.xsd"),
+            ):
+                (base / "broken.xsd").write_text("not a schema", encoding="utf-8")
+                failed.write_text(content, encoding="utf-8")
+                for fail_fast in (False, True):
+                    with self.subTest(content=content, fail_fast=fail_fast):
+                        validator = XmlValidation(fail_fast=fail_fast)
+                        with redirect_stdout(StringIO()):
+                            validator.main([str(before), str(failed), str(after)])
+                        self.assertEqual(validator.count_of_files_failed, 1)
+                        self.assertEqual(
+                            validator.count_of_files_validated, 1 if fail_fast else 2
+                        )
+                        if fail_fast:
+                            self.assertEqual(len(validator.errors), 1)
+                        elif 'first="bad"' in content:
+                            self.assertEqual(len(validator.errors), 2)
+                result = subprocess.run(
+                    [sys.executable, str(script), "--fail-fast",
+                     str(before), str(failed), str(after)],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("[NOT OK]", result.stdout)
+                self.assertNotIn(str(after), result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
