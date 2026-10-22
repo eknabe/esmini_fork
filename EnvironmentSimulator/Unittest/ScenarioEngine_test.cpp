@@ -1925,6 +1925,37 @@ TEST(InstanceParameterScopeTest, SnapshotExcludesNestedAndGlobalParameters)
     params.Clear();
 }
 
+TEST(InstanceParameterReferenceTest, TestVariousParameterReferences)
+{
+    ScenarioEngine* se = new ScenarioEngine("../../../EnvironmentSimulator/Unittest/xosc/place_cars_based_on_instance_parameters.xosc");
+    ASSERT_NE(se, nullptr);
+    ASSERT_EQ(se->entities_.object_.size(), 3);
+
+    scenario_step(se, 0.0);
+
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetX(), 10.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -5.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetX(), 10.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -8.65, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[2]->pos_.GetX(), 10.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[2]->pos_.GetY(), -11.2, 1e-3);
+
+    delete se;
+
+    se = new ScenarioEngine("../../../EnvironmentSimulator/Unittest/xosc/place_car_based_on_instance_parameter.xosc");
+    ASSERT_NE(se, nullptr);
+    ASSERT_EQ(se->entities_.object_.size(), 2);
+
+    scenario_step(se, 0.0);
+
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetX(), 10.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -5.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetX(), 10.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -7.4, 1e-3);
+
+    delete se;
+}
+
 // Verify modification of variables via actions
 TEST(VariableTest, TestMultipleAndAddVariableValue)
 {
