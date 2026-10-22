@@ -2,7 +2,6 @@
 <OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../resources/schema/OpenSCENARIOv1.4-esmini.xsd">
    <FileHeader description="demonstrate use of catalog parameters" author="esmini team" revMajor="1" revMinor="4" date="2026-09-11T14:00:00" />
    <ParameterDeclarations>
-      <ParameterDeclaration name="offset_y" parameterType="double" value="-5" />
       <ParameterDeclaration name="gap" parameterType="double" value="0.5" />
    </ParameterDeclarations>
    <CatalogLocations>
@@ -28,7 +27,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <WorldPosition x="10.0" y="$offset_y" />
+                        <WorldPosition x="10.0" y="${-($gap + $CarBlue::Width / 2)}" />
                      </Position>
                   </TeleportAction>
                </PrivateAction>
@@ -37,7 +36,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <WorldPosition x="10.0" y="${$offset_y - ($CarBlue::Width / 2 + $gap + $CarWhite::Width / 2)}" />
+                        <WorldPosition x="10.0" y="${-($gap + $CarBlue::Width + $gap + $CarWhite::Width / 2)}" />
                      </Position>
                   </TeleportAction>
                </PrivateAction>

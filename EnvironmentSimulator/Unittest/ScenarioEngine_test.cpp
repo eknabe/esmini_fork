@@ -1934,11 +1934,11 @@ TEST(InstanceParameterReferenceTest, TestVariousParameterReferences)
     scenario_step(se, 0.0);
 
     EXPECT_NEAR(se->entities_.object_[0]->pos_.GetX(), 10.0, 1e-3);
-    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -5.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -5.5, 1e-3);
     EXPECT_NEAR(se->entities_.object_[1]->pos_.GetX(), 10.0, 1e-3);
-    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -8.65, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -8.15, 1e-3);
     EXPECT_NEAR(se->entities_.object_[2]->pos_.GetX(), 10.0, 1e-3);
-    EXPECT_NEAR(se->entities_.object_[2]->pos_.GetY(), -11.2, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[2]->pos_.GetY(), -10.7, 1e-3);
 
     delete se;
 
@@ -1949,9 +1949,9 @@ TEST(InstanceParameterReferenceTest, TestVariousParameterReferences)
     scenario_step(se, 0.0);
 
     EXPECT_NEAR(se->entities_.object_[0]->pos_.GetX(), 10.0, 1e-3);
-    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -5.0, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[0]->pos_.GetY(), -1.4, 1e-3);
     EXPECT_NEAR(se->entities_.object_[1]->pos_.GetX(), 10.0, 1e-3);
-    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -7.4, 1e-3);
+    EXPECT_NEAR(se->entities_.object_[1]->pos_.GetY(), -3.8, 1e-3);
 
     delete se;
 }

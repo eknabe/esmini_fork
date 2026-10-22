@@ -2,8 +2,8 @@
 <OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../resources/schema/OpenSCENARIOv1.4-esmini.xsd">
    <FileHeader description="demonstrate use of catalog parameters" author="esmini team" revMajor="1" revMinor="4" date="2026-09-11T10:00:00" />
    <ParameterDeclarations>
-      <ParameterDeclaration name="OffsetY" parameterType="double" value="5" />
-      <ParameterDeclaration name="Gap" parameterType="double" value="0.25" />
+      <ParameterDeclaration name="y_offset" parameterType="double" value="4" />
+      <ParameterDeclaration name="gap" parameterType="double" value="0.25" />
    </ParameterDeclarations>
    <CatalogLocations>
       <VehicleCatalog>
@@ -11,13 +11,13 @@
       </VehicleCatalog>
    </CatalogLocations>
    <RoadNetwork>
-      <LogicFile filepath="../xodr/single_wide_lane.xodr" />
+      <LogicFile filepath="../xodr/mw_100m.xodr" />
    </RoadNetwork>
    <Entities>
       <ScenarioObject name="CarWhite">
          <CatalogReference catalogName="VehicleCatalog" entryName="car_white">
             <ParameterAssignments>
-               <ParameterAssignment parameterRef="Width" value="5" />
+               <ParameterAssignment parameterRef="Width" value="3" />
                <ParameterAssignment parameterRef="ScaleMode" value="ModelToBB" />
             </ParameterAssignments>
          </CatalogReference>
@@ -32,8 +32,8 @@
                <ParameterDeclaration name="ScaleMode" parameterType="string" value="ModelToBB" />
             </ParameterDeclarations>
             <BoundingBox>
-               <Center x="1.3" y="0.0" z="1.5" />
-               <Dimensions width="$Width" length="5.0" height="3.0" />
+               <Center x="1.3" y="0.0" z="1.1" />
+               <Dimensions width="$Width" length="5.0" height="2.2" />
             </BoundingBox>
             <Performance maxSpeed="100" maxDeceleration="10" maxAcceleration="10" />
             <Axles>
@@ -56,7 +56,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <WorldPosition x="10.0" y="-5" h="0.0" />
+                        <WorldPosition x="10.0" y="${-($y_offset + $CarWhite::Width / 2)}" h="0.0" />
                      </Position>
                   </TeleportAction>
                </PrivateAction>
@@ -65,7 +65,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <WorldPosition x="10.0" y="${-$OffsetY - ($CarWhite::Width / 2 + $Gap) - $CarBlue::Width / 2}" h="0.0" />
+                        <WorldPosition x="10.0" y="${-($y_offset + $CarWhite::Width + $gap + $CarBlue::Width / 2)}" h="0.0" />
                      </Position>
                   </TeleportAction>
                </PrivateAction>
@@ -74,7 +74,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <WorldPosition x="10.0" y="${-$OffsetY - ($CarWhite::Width / 2 + $Gap) - ($CarBlue::Width + $Gap) - $CarRed::Width / 2}" h="0.0" />
+                        <WorldPosition x="10.0" y="${-($y_offset + $CarWhite::Width + $gap + $CarBlue::Width + $gap + $CarRed::Width / 2)}" h="0.0" />
                      </Position>
                   </TeleportAction>
                </PrivateAction>

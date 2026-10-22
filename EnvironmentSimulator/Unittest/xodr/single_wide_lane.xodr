@@ -17,7 +17,7 @@
                 </center>
                 <right>
                     <lane id="-1" type="driving" level="false">
-                        <width a="15.0" b="0.0" c="0.0" d="0.0" sOffset="0"/>
+                        <width a="6.3" b="0.0" c="0.0" d="0.0" sOffset="0"/>
                         <roadMark sOffset="0" type="solid" weight="standard" color="standard" width="0.2"/>
                     </lane>
                 </right>
