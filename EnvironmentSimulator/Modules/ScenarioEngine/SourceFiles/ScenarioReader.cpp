@@ -1140,7 +1140,7 @@ MiscObject *ScenarioReader::parseOSCMiscObject(pugi::xml_node miscObjectNode, OS
     return miscObject;
 }
 
-Controller *ScenarioReader::parseOSCObjectController(pugi::xml_node controllerNode)
+Controller *ScenarioReader::parseOSCObjectController(pugi::xml_node controllerNode, const std::string &instance_name)
 {
     std::string   name       = parameters.ReadAttribute(controllerNode, "name");
     Controller   *controller = 0;
@@ -1151,6 +1151,8 @@ Controller *ScenarioReader::parseOSCObjectController(pugi::xml_node controllerNo
 
     parameters.CreateRestorePoint();
     parameters.addParameterDeclarations(paramDecl);
+
+    const auto instance_parameters = parameters.CaptureParameterDeclarations(paramDecl);
 
     // Then read any properties
     ParseOSCProperties(properties, controllerNode);
@@ -1208,6 +1210,11 @@ Controller *ScenarioReader::parseOSCObjectController(pugi::xml_node controllerNo
     }
 
     parameters.RestoreParameterDeclarations();
+
+    if (!instance_name.empty())
+    {
+        parameters.RegisterInstanceParameters(instance_name, instance_parameters);
+    }
 
     return controller;
 }
@@ -1710,8 +1717,9 @@ int ScenarioReader::parseEntities()
                 if (!disable_controllers_)
                 {
                     // get the sub child under ObjectController (should only be one)
-                    pugi::xml_node ctrlChild = ctrlNode.first_child();
-                    std::string    ctrlChildName(ctrlChild.name());
+                    pugi::xml_node    ctrlChild = ctrlNode.first_child();
+                    std::string       ctrlChildName(ctrlChild.name());
+                    const std::string instance_name = parameters.ReadAttribute(ctrlNode, "name");
                     if (ctrlChildName == "CatalogReference")
                     {
                         Entry *entry = ResolveCatalogReference(ctrlChild);
@@ -1724,7 +1732,7 @@ int ScenarioReader::parseEntities()
                         {
                             if (entry->type_ == CatalogType::CATALOG_CONTROLLER)
                             {
-                                ctrl = parseOSCObjectController(entry->GetNode());
+                                ctrl = parseOSCObjectController(entry->GetNode(), instance_name);
                             }
                             else
                             {
@@ -1734,7 +1742,7 @@ int ScenarioReader::parseEntities()
                     }
                     else
                     {
-                        ctrl = parseOSCObjectController(ctrlChild);
+                        ctrl = parseOSCObjectController(ctrlChild, instance_name);
                     }
 
                     if (ctrl)
@@ -3805,7 +3813,7 @@ OSCPrivateAction *ScenarioReader::parseOSCPrivateAction(pugi::xml_node actionNod
                 Controller *controller = 0;
                 if (controllerDefNode.name() == std::string("Controller"))
                 {
-                    controller = parseOSCObjectController(controllerDefNode);
+                    controller = parseOSCObjectController(controllerDefNode, ctrl_name);
                 }
                 else if (controllerDefNode.name() == std::string("CatalogReference"))
                 {
@@ -3819,7 +3827,7 @@ OSCPrivateAction *ScenarioReader::parseOSCPrivateAction(pugi::xml_node actionNod
                     {
                         if (entry->type_ == CatalogType::CATALOG_CONTROLLER)
                         {
-                            controller = parseOSCObjectController(entry->GetNode());
+                            controller = parseOSCObjectController(entry->GetNode(), ctrl_name);
                         }
                         else
                         {

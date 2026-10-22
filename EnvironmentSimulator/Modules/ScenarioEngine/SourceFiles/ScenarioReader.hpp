@@ -105,7 +105,7 @@ namespace scenarioengine
         Pedestrian*                       parseOSCPedestrian(pugi::xml_node pedestrianNode, OSCParameterDeclarations* declarations = nullptr);
         MiscObject*                       parseOSCMiscObject(pugi::xml_node miscObjectNode, OSCParameterDeclarations* declarations = nullptr);
         Vehicle*                          createRandomOSCVehicle(std::string name);
-        Controller*                       parseOSCObjectController(pugi::xml_node controllerNode);
+        Controller*                       parseOSCObjectController(pugi::xml_node controllerNode, const std::string& instance_name = "");
         void                              parseGlobalParameterDeclarations()
         {
             parameters.parseGlobalParameterDeclarations(osc_root_.child("ParameterDeclarations"));

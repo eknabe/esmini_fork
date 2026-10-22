@@ -1771,6 +1771,91 @@ TEST_F(InstanceParameterTest, RejectsForwardAndSelfReferences)
     EXPECT_THROW(ScenarioEngine se(doc, true), std::runtime_error);
 }
 
+TEST_F(InstanceParameterTest, ControllerInstancesInlineAndCatalog)
+{
+    auto root = doc.child("OpenSCENARIO");
+    root.child("CatalogLocations").append_child("ControllerCatalog").append_child("Directory").append_attribute("path") =
+        "../../../EnvironmentSimulator/Unittest/xosc";
+    pugi::xml_document catalog;
+    ASSERT_TRUE(catalog.load_file("../../../EnvironmentSimulator/Unittest/xosc/InstanceControllerCatalog.xosc"));
+    auto car                                   = root.child("Entities").first_child();
+    auto inline_controller                     = car.append_child("ObjectController");
+    inline_controller.append_attribute("name") = "InlineDriver";
+    inline_controller.append_copy(catalog.child("OpenSCENARIO").child("Catalog").child("Controller"));
+    for (const auto& name : {"CatalogDriver", "OtherDriver"})
+    {
+        auto controller                           = car.append_child("ObjectController");
+        controller.append_attribute("name")       = name;
+        auto reference                            = controller.append_child("CatalogReference");
+        reference.append_attribute("catalogName") = "InstanceControllerCatalog";
+        reference.append_attribute("entryName")   = "driver";
+        if (std::string(name) == "CatalogDriver")
+        {
+            auto assignment                             = reference.append_child("ParameterAssignments").append_child("ParameterAssignment");
+            assignment.append_attribute("parameterRef") = "TimeGap";
+            assignment.append_attribute("value")        = "2.4";
+        }
+    }
+    root.child("Storyboard")
+        .child("Init")
+        .child("Actions")
+        .first_child()
+        .child("PrivateAction")
+        .child("TeleportAction")
+        .child("Position")
+        .child("WorldPosition")
+        .attribute("y") = "${$CatalogDriver::Distance + $InlineDriver::TimeGap}";
+    {
+        ScenarioEngine se(doc);
+        auto&          params = ScenarioReader::parameters;
+        EXPECT_EQ(params.getParameter("InlineDriver::TimeGap"), "1.5");
+        EXPECT_EQ(params.getParameter("CatalogDriver::TimeGap"), "2.4");
+        EXPECT_EQ(params.getParameter("CatalogDriver::Distance"), "24.000000");
+        EXPECT_EQ(params.getParameter("OtherDriver::TimeGap"), "1.5");
+        EXPECT_THROW(params.getParameter("Car1::TimeGap"), std::runtime_error);
+        EXPECT_THROW(params.getParameter("driver::TimeGap"), std::runtime_error);
+        EXPECT_THROW(params.getParameter("InlineDriver::GlobalOnly"), std::runtime_error);
+        EXPECT_EQ(params.setParameterValue("CatalogDriver::TimeGap", 3.0), -1);
+        EXPECT_EQ(params.GetNumberOfParameters(), 2);
+        scenario_step(&se, 0.0);
+        EXPECT_NEAR(se.entities_.GetObjectByName("Car1")->pos_.GetY(), 25.5, 1e-6);
+    }
+    EXPECT_THROW(ScenarioReader::parameters.getParameter("InlineDriver::TimeGap"), std::runtime_error);
+    inline_controller.attribute("name") = "Car1";
+    EXPECT_THROW(ScenarioEngine se(doc), std::runtime_error);
+}
+
+TEST_F(InstanceParameterTest, AssignedControllerInstancesInlineAndCatalog)
+{
+    auto root = doc.child("OpenSCENARIO");
+    root.child("CatalogLocations").append_child("ControllerCatalog").append_child("Directory").append_attribute("path") =
+        "../../../EnvironmentSimulator/Unittest/xosc";
+    pugi::xml_document catalog;
+    ASSERT_TRUE(catalog.load_file("../../../EnvironmentSimulator/Unittest/xosc/InstanceControllerCatalog.xosc"));
+    for (const bool from_catalog : {false, true})
+    {
+        auto private_action = root.child("Storyboard").child("Init").child("Actions").first_child().append_child("PrivateAction");
+        auto controller     = private_action.append_child("ControllerAction").append_child("AssignControllerAction").append_child("ObjectController");
+        controller.append_attribute("name") = from_catalog ? "AssignedCatalog" : "AssignedInline";
+        if (from_catalog)
+        {
+            auto reference                              = controller.append_child("CatalogReference");
+            reference.append_attribute("catalogName")   = "InstanceControllerCatalog";
+            reference.append_attribute("entryName")     = "driver";
+            auto assignment                             = reference.append_child("ParameterAssignments").append_child("ParameterAssignment");
+            assignment.append_attribute("parameterRef") = "TimeGap";
+            assignment.append_attribute("value")        = "3";
+        }
+        else
+        {
+            controller.append_copy(catalog.child("OpenSCENARIO").child("Catalog").child("Controller"));
+        }
+    }
+    ScenarioEngine se(doc);
+    EXPECT_EQ(ScenarioReader::parameters.getParameter("AssignedInline::Distance"), "15.000000");
+    EXPECT_EQ(ScenarioReader::parameters.getParameter("AssignedCatalog::Distance"), "30.000000");
+}
+
 TEST_F(InstanceParameterTest, RejectsMalformedQualifiedReferences)
 {
     ScenarioEngine se(doc, true);
