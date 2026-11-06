@@ -65,6 +65,11 @@ set(USE_SUMO
     CACHE BOOL
           "If code that depend on sumo should be compiled.")
 
+set(SUMO_PACKAGE_DIR
+    ""
+    CACHE PATH
+          "Optional SUMO platform package directory containing include and lib.")
+
 set(USE_GTEST
     ON
     CACHE BOOL
@@ -84,6 +89,12 @@ set(USE_PROJ
     ON
     CACHE BOOL
           "If PROJ support for geodetic coordinate transformations should be compiled.")
+
+if(USE_SUMO
+   AND NOT
+       USE_PROJ)
+    message(FATAL_ERROR "USE_SUMO requires USE_PROJ. Enable it with -DUSE_PROJ=ON or disable SUMO with -DUSE_SUMO=OFF.")
+endif()
 
 set(BUILD_ODRPLOT
     ON
@@ -250,11 +261,6 @@ if(USE_OSI)
     set_osi_libs()
 endif()
 
-if(USE_SUMO)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/external/sumo.cmake)
-    set_sumo_libs()
-endif()
-
 if(USE_IMPLOT)
     include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/external/implot.cmake)
     set_implot_libs()
@@ -263,6 +269,11 @@ endif()
 if(USE_PROJ)
     include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/external/proj.cmake)
     set_proj_libs()
+endif()
+
+if(USE_SUMO)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/external/sumo.cmake)
+    set_sumo_libs()
 endif()
 
 # ############################### Resolve submodules #################################################################

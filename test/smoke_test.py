@@ -2381,43 +2381,73 @@ class TestSuite(unittest.TestCase):
 
             # Check some initialization steps
             self.assertTrue(re.search('Loading .*cut-in_sumo.xosc', log)  is not None)
+            sumo_1_28 = re.search(r'SUMO version: SUMO 1\.28\.0\b', log) is not None
 
             # Check some scenario events
             self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle car1 to scenario', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle Ego to SUMO', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.0.000.* SUMO controller: Add vehicle Target1 to SUMO', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.2.500.* SUMO controller: Add vehicle car2 to scenario', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.5.000.* SUMO controller: Add vehicle car3 to scenario', log, re.MULTILINE)  is not None)
-            self.assertTrue(re.search('^.7.500.* SUMO controller: Add vehicle car4 to scenario', log, re.MULTILINE)  is not None)
+            # SUMO 1.28 inserts queued vehicles earlier, also verified without esmini.
+            departures = ("1.500", "3.000", "5.000") if sumo_1_28 else ("2.500", "5.000", "7.500")
+            for vehicle, departure in zip(("car2", "car3", "car4"), departures):
+                self.assertRegex(log, r'(?m)^.' + re.escape(departure) + r'.* SUMO controller: Add vehicle ' + vehicle + ' to scenario')
             self.assertTrue(re.search('^.21.000.* first_lane_change standbyState -> startTransition -> runningState', log, re.MULTILINE)  is not None)
             self.assertTrue(re.search('^.40.500.* storyBoard runningState -> stopTransition -> completeState', log, re.MULTILINE)  is not None)
 
             # Check vehicle key positions
             csv = generate_csv()
-            if platform == "win32":
+            if platform == "win32" and sumo_1_28:
+                # Windows v142 Debug and Release produce identical trajectories.
+                positions = (
+                    '22.000, 0, Ego, 8.546, 131.996, -0.209, 1.565, 0.002, 0.000, 17.450, -0.000, 3.649',
+                    '22.000, 1, Target1, 5.557, 142.501, -0.233, 1.543, 0.002, 6.283, 25.000, -0.005, 2.229',
+                    '22.000, 2, car1, 12.099, 325.828, -0.580, 1.534, 0.003, 0.000, 14.703, -0.008, 5.626',
+                    '22.000, 3, bus1, -5.317, 65.430, -0.066, 4.709, 6.281, 0.000, 13.887, 0.000, 3.884',
+                    '22.000, 4, truck1, -4.811, 162.318, -0.276, 4.706, 6.281, 0.000, 14.085, 0.000, 4.138',
+                    '22.000, 5, truck1+, -4.767, 168.318, -0.287, 4.705, 6.281, 0.000, 14.085, 0.000, 4.138',
+                    '22.000, 6, truck1++, -4.722, 174.318, -0.299, 4.705, 6.281, 0.000, 14.085, 0.000, 4.138',
+                    '22.000, 7, truck1+++, -4.670, 181.017, -0.312, 4.705, 6.281, 0.000, 14.085, 0.000, 4.138',
+                    '22.000, 8, car2, 11.760, 271.402, -0.472, 1.491, 0.002, 0.000, 12.974, -0.011, 0.605',
+                    '22.000, 9, car3, 7.228, 263.387, -0.462, 1.554, 0.002, 0.000, 13.960, 0.008, 2.319',
+                    '22.000, 10, car4, 3.345, 244.335, -0.423, 1.561, 0.002, 0.000, 15.005, 0.001, 0.563',
+                    '33.000, 0, Ego, 11.107, 350.701, -0.627, 1.550, 0.002, 0.000, 20.000, -0.000, 0.259',
+                    '33.000, 1, Target1, 12.843, 417.357, -0.748, 1.539, 0.002, 0.000, 25.000, -0.001, 2.545',
+                    '33.000, 2, car1, 20.499, 487.021, -0.834, 1.521, 0.001, 0.000, 14.716, -0.000, 2.422',
+                    '33.000, 3, bus1, 2.275, 68.177, -0.072, 1.547, 0.002, 0.000, 13.867, -0.008, 5.796',
+                    '33.000, 4, truck1, -5.521, 9.400, -0.001, 4.709, 6.283, 0.000, 10.028, 0.000, 4.409',
+                    '33.000, 5, truck1+, -5.500, 15.400, -0.004, 4.709, 6.283, 0.000, 10.028, 0.000, 4.409',
+                    '33.000, 6, truck1++, -5.479, 21.400, -0.008, 4.709, 6.282, 0.000, 10.028, 0.000, 4.409',
+                    '33.000, 7, truck1+++, -5.455, 28.100, -0.014, 4.709, 6.282, 0.000, 10.028, 0.000, 4.409',
+                    '33.000, 8, car2, 17.570, 414.088, -0.742, 1.539, 0.002, 0.000, 12.969, -0.001, 0.718',
+                    '33.000, 9, car3, 13.598, 417.171, -0.749, 1.517, 0.001, 0.000, 13.981, 0.021, 2.376',
+                    '33.000, 10, car4, 6.679, 409.431, -0.733, 1.505, 0.002, 0.000, 15.032, -0.012, 0.713',
+                )
+                for position in positions:
+                    self.assertRegex(csv, r'(?m)^' + re.escape(position) + '$')
+            elif platform == "win32":
                 self.assertTrue(re.search('^22.000, 0, Ego, 8.546, 131.996, -0.209, 1.565, 0.002, 0.000, 17.450, -0.000, 3.649', csv, re.MULTILINE))
                 self.assertTrue(re.search('^22.000, 1, Target1, 5.557, 142.501, -0.233, 1.543, 0.002, 6.283, 25.000, -0.005, 2.229', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 2, car1, 14.801, 284.642, -0.500, 1.558, 0.000, 0.000, 14.720, 0.000, 3.506', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 3, bus1, -5.162, 102.463, -0.140, 4.707, 0.000, 0.000, 13.840, 0.000, 1.751', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 4, truck1, -4.528, 199.247, -0.346, 4.703, 0.005, 0.000, 14.041, -0.000, 4.474', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 5, truck1\\+, -4.473, 205.247, -0.357, 4.703, 6.281, 0.000, 14.041, 0.000, 4.474', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 6, truck1\\+\\+, -4.418, 211.247, -0.368, 4.703, 6.281, 0.000, 14.041, 0.000, 4.474', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 7, truck1\\+\\+\\+, -4.357, 217.946, -0.380, 4.703, 6.281, 6.283, 14.041, -0.000, 4.474', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 8, car2, 14.079, 223.659, -0.390, 1.561, 0.000, 0.000, 13.017, 0.000, 5.180', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 9, car3, 13.872, 202.079, -0.350, 1.563, 0.000, 0.000, 13.323, -0.000, 6.237', csv, re.MULTILINE))
-                self.assertTrue(re.search('^22.000, 10, car4, 13.670, 176.972, -0.305, 1.563, 6.278, 0.000, 14.603, 0.000, 4.314', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 2, car1, 14.750, 280.722, -0.500, 1.558, 0.000, 0.000, 14.720, 0.000, 3.506', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 3, bus1, -5.144, 106.013, -0.140, 4.707, 0.000, 0.000, 13.840, 0.000, 1.751', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 4, truck1, -4.481, 204.297, -0.371, 4.703, 6.278, 0.000, 14.041, -0.000, 4.474', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 5, truck1\\+, -4.426, 210.297, -0.366, 4.703, 6.281, 0.000, 14.041, 0.000, 4.474', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 6, truck1\\+\\+, -4.369, 216.296, -0.377, 4.703, 6.281, 0.000, 14.041, 0.000, 4.474', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 7, truck1\\+\\+\\+, -4.306, 222.996, -0.388, 4.703, 6.281, 6.283, 14.041, -0.000, 4.474', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 8, car2, 14.039, 219.740, -0.390, 1.561, 0.000, 0.000, 13.017, 0.000, 5.180', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 9, car3, 13.841, 198.159, -0.350, 1.563, 0.000, 0.000, 13.323, -0.000, 6.237', csv, re.MULTILINE))
+                self.assertTrue(re.search('^22.000, 10, car4, 13.642, 173.422, -0.287, 1.563, 0.005, 0.000, 14.603, 0.000, 4.314', csv, re.MULTILINE))
 
                 self.assertTrue(re.search('^33.000, 0, Ego, 11.107, 350.701, -0.627, 1.550, 0.002, 0.000, 20.000, -0.000, 0.259', csv, re.MULTILINE))
                 self.assertTrue(re.search('^33.000, 1, Target1, 12.843, 417.357, -0.748, 1.539, 0.002, 0.000, 25.000, -0.001, 2.545', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 2, car1, 18.680, 446.019, -0.790, 1.534, 0.000, 0.000, 14.690, -0.000, 6.278', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 3, bus1, 6.910, 44.418, -0.030, 1.560, 0.000, 0.000, 13.826, 0.000, 3.629', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 4, truck1, -5.394, 44.610, -0.030, 4.709, 0.000, 0.000, 14.047, -0.000, 0.137', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 5, truck1\\+, -5.372, 50.610, -0.041, 4.709, 6.282, 6.283, 14.047, 0.000, 0.137', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 6, truck1\\+\\+, -5.350, 56.610, -0.051, 4.709, 6.282, 6.283, 14.047, 0.000, 0.137', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 7, truck1\\+\\+\\+, -5.324, 63.310, -0.062, 4.708, 6.281, 0.000, 14.047, 0.000, 0.137', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 8, car2, 16.278, 366.520, -0.660, 1.549, 0.000, 0.000, 12.971, -0.001, 5.207', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 9, car3, 13.803, 346.028, -0.620, 1.549, 0.000, 0.000, 12.965, -0.001, 2.379', csv, re.MULTILINE))
-                self.assertTrue(re.search('^33.000, 10, car4, 12.867, 325.249, -0.579, 1.559, 6.278, 0.000, 13.042, -0.000, 5.838', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 2, car1, 18.536, 442.099, -0.790, 1.534, 0.000, 0.000, 14.697, -0.000, 0.140', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 3, bus1, 6.872, 40.869, -0.030, 1.560, 0.000, 0.000, 13.826, 0.000, 3.629', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 4, truck1, -5.377, 49.660, -0.030, 4.709, 0.000, 0.000, 14.047, -0.000, 0.137', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 5, truck1\\+, -5.354, 55.660, -0.049, 4.709, 6.282, 0.000, 14.047, 0.000, 0.137', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 6, truck1\\+\\+, -5.331, 61.660, -0.059, 4.708, 6.281, 0.000, 14.047, 0.000, 0.137', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 7, truck1\\+\\+\\+, -5.304, 68.360, -0.071, 4.708, 6.281, 0.000, 14.047, 0.000, 0.137', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 8, car2, 16.192, 362.604, -0.660, 1.549, 0.000, 0.000, 12.990, -0.001, 5.034', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 9, car3, 13.691, 342.116, -0.620, 1.551, 0.000, 0.000, 13.014, 0.000, 2.640', csv, re.MULTILINE))
+                self.assertTrue(re.search('^33.000, 10, car4, 12.503, 321.709, -0.562, 1.560, 0.005, 0.000, 13.072, -0.002, 5.901', csv, re.MULTILINE))
 
             elif platform == "linux" or platform == "linux2":
                 # vehicle models are randomized differently on linux
@@ -2444,7 +2474,7 @@ class TestSuite(unittest.TestCase):
     def test_sumo_test(self):
         if check_config_bool_true("USE_SUMO"):
             if self.build_type("Release"):
-                log, _, _, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/sumo-test.xosc'), COMMON_ESMINI_ARGS + "--fixed_timestep 20.0")
+                log, _, _, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/sumo-test.xosc'), COMMON_ESMINI_ARGS + "--fixed_timestep 20.0 --seed 2")
 
                 # Check some initialization steps
                 self.assertTrue(re.search('Loading .*sumo-test.xosc', log)  is not None)
@@ -2457,14 +2487,28 @@ class TestSuite(unittest.TestCase):
 
                 # Check vehicle key positions
                 csv = generate_csv()
-                self.assertTrue(re.search('^40.000, 1, 0, 218.251, -3.640, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 5.121', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 2, 1, 510.657, 226.636, 0.000, 2.384, 0.000, 0.000, 13.026, -0.034, 5.670', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 3, 2, 339.507, 1.880, 0.000, 3.142, 0.000, 0.000, 0.001, 0.000, 0.008', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 4, 3, 290.049, -4.098, 0.000, 1.861, 0.000, 0.000, 0.000, 0.016, 4.370', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 97, 81, 437.115, -238.120, 0.000, 3.142, 0.000, 0.000, 13.858, -0.017, 4.499', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 98, 91, 531.880, -77.001, 0.000, 1.571, 0.000, 0.000, 12.382, 0.019, 1.386', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 99, 84, 459.101, -238.120, 0.000, 3.142, 0.000, 0.000, 14.010, -0.017, 4.036', csv, re.MULTILINE))
-                self.assertTrue(re.search('^40.000, 100, 99, 531.880, -97.204, 0.000, 1.571, 0.000, 0.000, 12.457, 0.019, 2.988', csv, re.MULTILINE))
+                if platform == "win32" and re.search(r'SUMO version: SUMO 1\.28\.0\b', log):
+                    positions = (
+                        '40.000, 1, 0, 229.274, -3.944, 0.000, 5.994, 0.000, 0.000, 0.000, -1.571, 2.610',
+                        '40.000, 2, 1, 476.516, 241.489, 0.000, 3.059, 0.000, 0.000, 13.029, -0.019, 6.002',
+                        '40.000, 3, 2, 343.426, 1.880, 0.000, 3.142, 0.000, 0.000, 0.000, 0.000, 6.020',
+                        '40.000, 4, 3, 291.880, -136.994, 0.000, 1.571, 0.000, 0.000, 15.031, 0.013, 4.399',
+                        '40.000, 97, 81, 373.708, -238.127, 0.000, 3.142, 0.000, 0.000, 10.985, -0.021, 5.264',
+                        '40.000, 94, 91, 531.876, 49.994, 0.000, 1.571, 0.000, 0.000, 12.376, 0.001, 1.098',
+                        '40.000, 98, 84, 392.696, -238.128, 0.000, 3.142, 0.000, 0.000, 11.315, -0.021, 5.270',
+                        '40.000, 99, 99, 531.880, -16.720, 0.000, 1.571, 0.000, 0.000, 8.461, 0.017, 1.629',
+                    )
+                    for position in positions:
+                        self.assertRegex(csv, r'(?m)^' + re.escape(position) + '$')
+                    return
+                self.assertTrue(re.search('^40.000, 1, 0, 214.331, -3.640, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 5.121', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 2, 1, 513.542, 223.909, 0.000, 2.384, 0.000, 0.000, 13.026, -0.034, 5.670', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 3, 2, 343.427, 1.880, 0.000, 3.142, 0.000, 0.000, 0.001, 0.000, 0.008', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 4, 3, 291.170, -7.855, 0.000, 1.861, 0.000, 0.000, 0.000, 0.016, 4.370', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 97, 81, 441.735, -238.120, 0.000, 3.142, 0.000, 0.000, 13.858, -0.017, 4.499', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 98, 91, 531.880, -80.971, 0.000, 1.571, 0.000, 0.000, 12.382, 0.019, 1.386', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 99, 84, 463.721, -238.120, 0.000, 3.142, 0.000, 0.000, 14.010, -0.017, 4.036', csv, re.MULTILINE))
+                self.assertTrue(re.search('^40.000, 100, 99, 531.880, -100.754, 0.000, 1.571, 0.000, 0.000, 12.457, 0.019, 2.988', csv, re.MULTILINE))
             else:
                 print("Skipping large test for non-Release build ", end='', file=sys.stderr)
         else:

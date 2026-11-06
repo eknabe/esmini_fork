@@ -209,8 +209,6 @@ macro(set_sumo_libs)
             optimized
             ${EXTERNALS_SUMO_LIBRARY_PATH}/microsim_actions.lib
             optimized
-            ${EXTERNALS_SUMO_LIBRARY_PATH}/foreign_phemlight_V5.lib
-            optimized
             ${EXTERNALS_SUMO_LIBRARY_PATH}/foreign_phemlight.lib
             optimized
             ${EXTERNALS_SUMO_LIBRARY_PATH}/microsim_engine.lib
@@ -267,10 +265,43 @@ macro(set_sumo_libs)
             debug
             ${EXTERNALS_SUMO_LIBRARY_PATH}/microsim_actionsd.lib
             debug
-            ${EXTERNALS_SUMO_LIBRARY_PATH}/foreign_phemlight_V5d.lib
-            debug
             ${EXTERNALS_SUMO_LIBRARY_PATH}/foreign_phemlightd.lib
             debug
             ${EXTERNALS_SUMO_LIBRARY_PATH}/microsim_engined.lib)
     endif()
+
+    # Older downloadable packages do not contain these SUMO 1.28 dependencies.
+    foreach(
+        module
+        IN
+        ITEMS utils_handlers
+              utils_importio
+              foreign_routingkit
+              foreign_phemlight_V5)
+        if(MSVC)
+            set(sumo_archive
+                "${EXTERNALS_SUMO_LIBRARY_PATH}/${module}")
+            set(sumo_extension
+                lib)
+        else()
+            set(sumo_archive
+                "${EXTERNALS_SUMO_LIBRARY_PATH}/lib${module}")
+            set(sumo_extension
+                a)
+        endif()
+        if(EXISTS "${sumo_archive}.${sumo_extension}")
+            if(APPLE)
+                list(APPEND SUMO_LIBRARIES "${sumo_archive}.${sumo_extension}")
+            else()
+                list(
+                    APPEND
+                    SUMO_LIBRARIES
+                    optimized
+                    "${sumo_archive}.${sumo_extension}"
+                    debug
+                    "${sumo_archive}d.${sumo_extension}")
+            endif()
+        endif()
+    endforeach()
+    list(APPEND SUMO_LIBRARIES ${PROJ_LIBRARIES})
 endmacro()

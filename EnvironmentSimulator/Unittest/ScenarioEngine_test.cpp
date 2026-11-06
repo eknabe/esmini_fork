@@ -17,6 +17,13 @@
 #include "pugixml.hpp"
 #include "simple_expr.h"
 
+#ifdef _USE_SUMO
+// Older SUMO headers use PositionVector without declaring it.
+class PositionVector;
+#include <libsumo/Simulation.h>
+#include <libsumo/Vehicle.h>
+#endif
+
 #if defined(_USE_OSI) && _RUN_OSI_TESTS
 #include "playerbase.hpp"
 #include <google/protobuf/io/coded_stream.h>
@@ -50,6 +57,56 @@ static void scenario_step(ScenarioEngine* scenario_engine, double dt)
     scenario_engine->SwapAndClearDirtyBits();
     DirtyBits::SetReadBack();
 }
+
+#ifdef _USE_SUMO
+TEST(SumoController, ReferencePoints)
+{
+    ScenarioEngine se("../../../resources/xosc/cut-in_sumo.xosc");
+    scenario_step(&se, 0.0);
+
+    pugi::xml_document network;
+    ASSERT_TRUE(network.load_file("../../../resources/sumo_inputs/e6mini.net.xml"));
+    std::string  net_offset = network.child("net").child("location").attribute("netOffset").value();
+    const double offset_x   = std::stod(net_offset);
+    const double offset_y   = std::stod(net_offset.substr(net_offset.find(',') + 1));
+
+    for (const char* name : {"car1", "bus1", "truck1"})
+    {
+        Object* object = se.entities_.GetObjectByName(name);
+        ASSERT_NE(object, nullptr);
+        const auto   front    = libsumo::Vehicle::getPosition3D(name);
+        const double heading  = M_PI / 2.0 - libsumo::Vehicle::getAngle(name) * M_PI / 180.0;
+        const double slope    = libsumo::Vehicle::getSlope(name) * M_PI / 180.0;
+        const double distance = object->boundingbox_.center_.x_ + object->boundingbox_.dimensions_.length_ / 2.0;
+        EXPECT_GT(distance, 0.0);
+        EXPECT_NEAR(object->pos_.GetX(), front.x - offset_x - distance * cos(slope) * cos(heading), 1e-6);
+        EXPECT_NEAR(object->pos_.GetY(), front.y - offset_y - distance * cos(slope) * sin(heading), 1e-6);
+        EXPECT_NEAR(object->pos_.GetZ(), front.z - distance * sin(slope), 1e-6);
+        EXPECT_NEAR(GetAngleDifference(object->pos_.GetP(), -slope), 0.0, 1e-6);
+    }
+
+    Object* ego = se.entities_.GetObjectByName("Ego");
+    ASSERT_NE(ego, nullptr);
+    auto* controller = se.entities_.GetObjectByName("car1")->GetAssignedControllerOftype(scenarioengine::Controller::Type::CONTROLLER_TYPE_SUMO);
+    ASSERT_NE(controller, nullptr);
+    // Keep the externally positioned vehicle stationary while SUMO applies moveToXY.
+    ego->SetSpeed(0.0);
+    for (double front_distance : {4.5, 7.0})
+    {
+        ego->boundingbox_.center_.x_ = front_distance - ego->boundingbox_.dimensions_.length_ / 2.0;
+        controller->Step(0.0);
+        const double expected_x     = ego->pos_.GetX() + offset_x + front_distance * cos(ego->pos_.GetP()) * cos(ego->pos_.GetH());
+        const double expected_y     = ego->pos_.GetY() + offset_y + front_distance * cos(ego->pos_.GetP()) * sin(ego->pos_.GetH());
+        const double expected_angle = GetAngleInInterval2PI(M_PI / 2.0 - ego->pos_.GetH()) * 180.0 / M_PI;
+        libsumo::Simulation::step();
+        const auto front = libsumo::Vehicle::getPosition3D("Ego");
+        // moveToXY snaps to the SUMO lane centerline.
+        EXPECT_NEAR(front.x, expected_x, 0.1);
+        EXPECT_NEAR(front.y, expected_y, 0.1);
+        EXPECT_NEAR(libsumo::Vehicle::getAngle("Ego"), expected_angle, 1e-6);
+    }
+}
+#endif
 
 #if defined(_USE_OSI) && _RUN_OSI_TESTS
 class OSIFileOptionsTest : public ::testing::TestWithParam<std::tuple<int, int>>

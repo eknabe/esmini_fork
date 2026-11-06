@@ -145,6 +145,10 @@ macro(set_project_os_specific_paths)
                 "")
         endif()
     endif()
+    if(SUMO_PACKAGE_DIR)
+        set(EXTERNALS_SUMO_OS_SPECIFIC_PATH
+            "${SUMO_PACKAGE_DIR}")
+    endif()
     if(MSVC)
         set(EXTERNALS_DIRENT_INCLUDES
             "${EXTERNALS_DIRENT_PATH}/win")
