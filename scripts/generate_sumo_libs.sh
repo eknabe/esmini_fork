@@ -4,8 +4,8 @@
 # Run from a scratch directory with Bash (Git Bash on Windows). No system
 # installation or administrator privileges are required.
 #
-# Prerequisites: Git, CMake >= 3.18, Python 3, a C++17 compiler, and esmini's
-# static PROJ package (including SQLite), and external 7-Zip.
+# Prerequisites: Git, CMake >= 3.18 and < 4, Python 3, a C++17 compiler,
+# esmini's static PROJ package (including SQLite), and external 7-Zip.
 # USE_SUMO requires USE_PROJ in esmini.
 # Windows defaults to Visual Studio 2022 with the v142 x64 toolset installed.
 #
@@ -82,11 +82,27 @@ case "$OSTYPE" in
     *) fail "Unsupported OSTYPE: $OSTYPE" ;;
 esac
 
-for tool in git cmake python; do
+for tool in git cmake; do
     command -v "$tool" >/dev/null || fail "Required tool not found: $tool"
 done
-python -c 'import sys; sys.exit(0 if sys.version_info.major == 3 else 1)' ||
-    fail "Python 3 must be available as python."
+
+cmake_version=$(cmake --version | sed -n '1s/^cmake version //p')
+[[ "$cmake_version" =~ ^([0-9]+)\.([0-9]+) ]] ||
+    fail "Unable to determine the CMake version."
+cmake_major=${BASH_REMATCH[1]}
+cmake_minor=${BASH_REMATCH[2]}
+(( cmake_major == 3 && cmake_minor >= 18 )) ||
+    fail "CMake 3.18 through 3.x is required by the pinned dependency projects; found $cmake_version."
+
+python_command=
+for candidate in python python3; do
+    if command -v "$candidate" >/dev/null &&
+        "$candidate" -c 'import sys; sys.exit(0 if sys.version_info.major == 3 else 1)'; then
+        python_command=$(command -v "$candidate")
+        break
+    fi
+done
+[[ -n "$python_command" ]] || fail "Python 3 must be available as python or python3."
 
 if [[ -z "${SEVEN_ZIP:-}" ]]; then
     for candidate in 7z 7zz 7za "/c/Program Files/7-Zip/7z.exe"; do
@@ -155,7 +171,8 @@ fetch_source() {
                 git -C "$directory" sparse-checkout set --no-cone '/*' '!/zconf.h'
                 ;;
             sumo)
-                git -C "$directory" sparse-checkout set src build_config tools data
+                git -C "$directory" sparse-checkout set --no-cone \
+                    '/*' '!/*/' '/src/' '/build_config/' '/tools/' '/data/'
                 ;;
         esac
         git -C "$directory" -c advice.detachedHead=false checkout --detach "$version"
@@ -274,7 +291,7 @@ for configuration in "${configurations[@]}"; do
         "-DPROJ_INCLUDE_DIR=$(cmake_path "$PROJ_ROOT/include")" \
         "-DPROJ_LIBRARY=$(cmake_path "$PROJ_ROOT/lib/${lib_prefix}proj${proj_suffix}.$lib_ext")" \
         "-DSUMO_LIBRARIES=$(cmake_path "$prefix")" \
-        "-DPython_EXECUTABLE=$(cmake_path "$(command -v python)")" \
+        "-DPython_EXECUTABLE=$(cmake_path "$python_command")" \
         "-DZLIB_INCLUDE_DIR=$(cmake_path "$prefix/include")" \
         "-DZLIB_LIBRARY=$(cmake_path "$prefix/lib/$zlib_name")" \
         "-DXercesC_INCLUDE_DIR=$(cmake_path "$prefix/include")" \
