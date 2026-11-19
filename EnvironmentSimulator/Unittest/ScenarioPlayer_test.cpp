@@ -13,6 +13,24 @@ using namespace scenarioengine;
 
 #include <osg/TriangleFunctor>
 
+TEST(ShadowTest, OverallOpacityFadesOnlyWhenBothDimensionsAreBelowCollarMinimum)
+{
+    constexpr auto       mask = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    const viewer::Shadow reference("reference", 0.0, 2.0, 0.0, 0.3, 0.3, 6.0, mask, false, nullptr);
+    const viewer::Shadow thin("thin", 0.0, 2.0, 0.0, 0.06, 0.1, 6.0, mask, false, nullptr);
+    const viewer::Shadow at_threshold("at threshold", 0.0, 2.0, 0.0, 0.2, 0.06, 6.0, mask, false, nullptr);
+    const viewer::Shadow wide("wide", 0.0, 2.0, 0.0, 0.06, 0.3, 6.0, mask, false, nullptr);
+    const viewer::Shadow zero("zero", 0.0, 2.0, 0.0, 0.0, 0.0, 6.0, mask, false, nullptr);
+
+    ASSERT_EQ(thin.color_->size(), 1u);
+    EXPECT_FLOAT_EQ(thin.color_->at(0).a(), 0.5f * reference.color_->at(0).a());
+    EXPECT_FLOAT_EQ(at_threshold.color_->at(0).a(), reference.color_->at(0).a());
+    EXPECT_FLOAT_EQ(wide.color_->at(0).a(), reference.color_->at(0).a());
+    EXPECT_FLOAT_EQ(zero.color_->at(0).a(), 0.0f);
+    EXPECT_EQ(zero.pat_->getChild(0)->getNodeMask(), 0u);
+    EXPECT_FLOAT_EQ(thin.vertices_->at(5).x() - thin.vertices_->at(4).x(), reference.vertices_->at(5).x() - reference.vertices_->at(4).x());
+}
+
 TEST(RoadGeomTest, LaneHeightBoundaryBeforeRejectedCandidate)
 {
     ASSERT_TRUE(Position::LoadOpenDriveFromXMLString(R"(

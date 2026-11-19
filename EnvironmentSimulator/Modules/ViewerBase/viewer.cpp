@@ -3303,6 +3303,11 @@ viewer::Shadow::Shadow(std::string                  name,
     pat_->setNodeMask(node_mask);
 
     Recalculate();
+    if (color_->at(0).a() == 0.0f)
+    {
+        // A zero-footprint shadow must not mask other shadows in the stencil buffer.
+        geode->setNodeMask(0u);
+    }
 }
 
 void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, double origin_x, double origin_y)
@@ -3405,7 +3410,14 @@ void viewer::Shadow::Recalculate()
     }
     vertices_->dirty();
 
-    color_->at(0).a() = MAX(min_alpha_, 1.0f - z_ / max_z_);  // weaker shadow with object elevation, but never fully transparent
+    // Apply the thickness fade after the elevation-based opacity floor, without resizing the collar.
+    const double thickness = MAX(length_, width_);
+    double       alpha     = MAX(min_alpha_, 1.0 - z_ / max_z_);
+    if (collar_min_size_ > 0.0 && thickness < collar_min_size_)
+    {
+        alpha *= MAX(0.0, thickness) / collar_min_size_;
+    }
+    color_->at(0).a() = static_cast<float>(alpha);
     color_->dirty();
 }
 
