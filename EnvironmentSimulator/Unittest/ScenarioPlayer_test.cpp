@@ -28,7 +28,25 @@ TEST(ShadowTest, OverallOpacityFadesOnlyWhenBothDimensionsAreBelowCollarMinimum)
     EXPECT_FLOAT_EQ(wide.color_->at(0).a(), reference.color_->at(0).a());
     EXPECT_FLOAT_EQ(zero.color_->at(0).a(), 0.0f);
     EXPECT_EQ(zero.pat_->getChild(0)->getNodeMask(), 0u);
-    EXPECT_FLOAT_EQ(thin.vertices_->at(5).x() - thin.vertices_->at(4).x(), reference.vertices_->at(5).x() - reference.vertices_->at(4).x());
+}
+
+TEST(ShadowTest, CollarShrinksForThinFootprints)
+{
+    constexpr auto       mask = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    const viewer::Shadow reference("reference", 0.0, 2.0, 0.0, 0.3, 0.3, 6.0, mask, false, nullptr);
+    const viewer::Shadow thin("thin", 0.0, 2.0, 0.0, 0.06, 0.1, 6.0, mask, false, nullptr);
+    const viewer::Shadow at_threshold("at threshold", 0.0, 2.0, 0.0, 0.2, 0.06, 6.0, mask, false, nullptr);
+    const viewer::Shadow wide("wide", 0.0, 2.0, 0.0, 0.06, 0.3, 6.0, mask, false, nullptr);
+    const viewer::Shadow zero("zero", 0.0, 2.0, 0.0, 0.0, 0.0, 6.0, mask, false, nullptr);
+    const viewer::Shadow short_thin("short thin", 0.0, 0.0, 0.0, 0.1, 0.06, 0.1, mask, false, nullptr);
+
+    const float reference_collar = reference.vertices_->at(5).x() - reference.vertices_->at(4).x();
+    EXPECT_FLOAT_EQ(thin.vertices_->at(5).x() - thin.vertices_->at(4).x(), 0.5f * reference_collar);
+    EXPECT_FLOAT_EQ(thin.vertices_->at(5).y() - thin.vertices_->at(1).y(), 0.5f * reference_collar);
+    EXPECT_FLOAT_EQ(at_threshold.vertices_->at(5).x() - at_threshold.vertices_->at(4).x(), reference_collar);
+    EXPECT_FLOAT_EQ(wide.vertices_->at(5).x() - wide.vertices_->at(4).x(), reference_collar);
+    EXPECT_FLOAT_EQ(zero.vertices_->at(5).x() - zero.vertices_->at(4).x(), 0.0f);
+    EXPECT_NEAR(short_thin.vertices_->at(5).x() - short_thin.vertices_->at(4).x(), 0.1, 1e-6);
 }
 
 TEST(ShadowTest, RoadVisibilityUsesCurrentElevationEvenForSmallChanges)

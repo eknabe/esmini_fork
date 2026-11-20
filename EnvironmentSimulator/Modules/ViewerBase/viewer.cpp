@@ -3386,8 +3386,9 @@ void viewer::Shadow::Recalculate()
 {
     double add_z = is_vehicle_ ? vehicle_z_offset_ : 0.0;  // For vehicles, consider some ground clearance for shadow softening
 
-    // Ensure collar size is within specified bounds
-    double collar_size = MAX(collar_min_size_, MIN((z_ + add_z + height_) * height_factor_, collar_max_size_));
+    const double thickness        = MAX(length_, width_);
+    const double thickness_factor = collar_min_size_ > 0.0 && thickness < collar_min_size_ ? MAX(0.0, thickness) / collar_min_size_ : 1.0;
+    double       collar_size      = MAX(collar_min_size_, MIN((z_ + add_z + height_) * height_factor_, collar_max_size_)) * thickness_factor;
 
     // calculate collar offset, from center at object edge, + outwards, - inwards
     double collar_offset = collar_offset_factor_ * collar_size / 2 + add_z * offset_z_factor_;
@@ -3413,14 +3414,7 @@ void viewer::Shadow::Recalculate()
     }
     vertices_->dirty();
 
-    // Apply the thickness fade after the elevation-based opacity floor, without resizing the collar.
-    const double thickness = MAX(length_, width_);
-    double       alpha     = MAX(min_alpha_, 1.0 - z_ / max_z_);
-    if (collar_min_size_ > 0.0 && thickness < collar_min_size_)
-    {
-        alpha *= MAX(0.0, thickness) / collar_min_size_;
-    }
-    color_->at(0).a() = static_cast<float>(alpha);
+    color_->at(0).a() = static_cast<float>(MAX(min_alpha_, 1.0 - z_ / max_z_) * thickness_factor);
     color_->dirty();
 }
 
