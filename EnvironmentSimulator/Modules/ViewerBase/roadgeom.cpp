@@ -606,9 +606,17 @@ namespace roadgeom
             osg::ComputeBoundsVisitor bounds;
             environment_->accept(bounds);
             const osg::BoundingBox& bb = bounds.getBoundingBox();
-            if (bb.valid() && bb.zMax() - bb.zMin() < FLAT_SCENE_HEIGHT_LIMIT)
+            if (bb.valid())
             {
-                flat_scene_z_ = bb.zMax();
+                const float scene_height = bb.zMax() - bb.zMin();
+                if (scene_height < FLAT_SCENE_HEIGHT_LIMIT)
+                {
+                    flat_scene_z_ = bb.zMax();
+                }
+                else
+                {
+                    entity_shadow_fallback_ = true;
+                }
             }
         }
 

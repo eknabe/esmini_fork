@@ -2961,7 +2961,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
 
     if (!SE_Env::Inst().GetOptions().GetOptionSetByEnum(esmini_options::CONFIG_ENUM::DISABLE_SHADOWS))
     {
-        const double flat_scene_z = roadGeom ? roadGeom->flat_scene_z_ : std::nan("");
+        const double flat_scene_z           = roadGeom ? roadGeom->flat_scene_z_ : std::nan("");
+        const bool   entity_shadow_fallback = roadGeom && roadGeom->entity_shadow_fallback_;
 
         Shadow* shadow_model_ = new Shadow("shadow_tx_model",
                                            xc - refpoint_x_offset,
@@ -2973,7 +2974,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
                                            NodeMask::NODE_MASK_ENTITY_MODEL,
                                            type == EntityModel::EntityType::VEHICLE,
                                            shadow_texture_,
-                                           flat_scene_z);
+                                           flat_scene_z,
+                                           entity_shadow_fallback);
 
         Shadow* shadow_bb_ = new Shadow("shadow_tx_filled_bb",
                                         xc - refpoint_x_offset,
@@ -2985,7 +2987,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
                                         NodeMask::NODE_MASK_ENTITY_BB_FILLED,
                                         type == EntityModel::EntityType::VEHICLE,
                                         shadow_texture_,
-                                        flat_scene_z);
+                                        flat_scene_z,
+                                        entity_shadow_fallback);
 
         emodel->SetShadowModel(shadow_model_);
         emodel->SetShadowBB(shadow_bb_);
@@ -3175,10 +3178,12 @@ viewer::Shadow::Shadow(std::string                  name,
                        NodeMask                     node_mask,
                        bool                         is_vehicle,
                        osg::ref_ptr<osg::Texture2D> texture,
-                       double                       flat_scene_z)
+                       double                       flat_scene_z,
+                       bool                         entity_shadow_fallback)
     : z_(z),
       ground_plane_z_(ground_plane_z),
       flat_scene_z_(flat_scene_z),
+      entity_shadow_fallback_(entity_shadow_fallback),
       p_(0.0),
       r_(0.0),
       length_(bb_length),
@@ -3320,9 +3325,10 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
 {
     bool recalculate = false;
 
-    // Prefer the road surface and generated ground plane over a flat scene model.
-    double z_ground   = std::nan("");
-    double z_relative = std::nan("");
+    // Prefer a known surface over using the entity's own elevation.
+    double z_ground       = std::nan("");
+    double z_relative     = std::nan("");
+    bool   follows_entity = false;
     if (roadmanager::Position::GetOpenDrive()->GetNumOfRoads() > 0)
     {
         z_ground   = pos->GetZRoad();
@@ -3342,6 +3348,12 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
         {
             z_relative = MAX(0.0, z_relative);
         }
+    }
+    else if (entity_shadow_fallback_)
+    {
+        z_ground       = pos->GetZ();
+        z_relative     = 0.0;
+        follows_entity = true;
     }
 
     if (std::isnan(z_ground) || z_relative < -SMALL_NUMBER)
@@ -3366,17 +3378,23 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
 
     pat_->setPosition(osg::Vec3(pos->GetX() - origin_x, pos->GetY() - origin_y, z_ground));
 
-    // for absolute position mode, the pitch offset is included, for relative mode the pitch consider reference line only
-    // we need to add an offset for the effect of roll change rate on local pitch
-    int    mode     = (pos->GetMode(roadmanager::Position::PosModeType::SET) & roadmanager::Position::PosMode::P_MASK);
-    double p_offset = (mode == roadmanager::Position::PosMode::P_ABS) ? pos->GetPOffset() : 0.0;
+    if (follows_entity)
+    {
+        pat_->setAttitude(osg::Quat(pos->GetH(), osg::Vec3(osg::Z_AXIS)));
+    }
+    else
+    {
+        // Include pitch from the road's roll change rate in absolute pitch mode.
+        int    mode     = (pos->GetMode(roadmanager::Position::PosModeType::SET) & roadmanager::Position::PosMode::P_MASK);
+        double p_offset = (mode == roadmanager::Position::PosMode::P_ABS) ? pos->GetPOffset() : 0.0;
 
-    pat_->setAttitude(osg::Quat(pos->GetR() - pos->GetRRelative(),
-                                osg::Vec3(osg::X_AXIS),
-                                pos->GetP() - pos->GetPRelative() + p_offset,
-                                osg::Vec3(osg::Y_AXIS),
-                                pos->GetH(),
-                                osg::Vec3(osg::Z_AXIS)));
+        pat_->setAttitude(osg::Quat(pos->GetR() - pos->GetRRelative(),
+                                    osg::Vec3(osg::X_AXIS),
+                                    pos->GetP() - pos->GetPRelative() + p_offset,
+                                    osg::Vec3(osg::Y_AXIS),
+                                    pos->GetH(),
+                                    osg::Vec3(osg::Z_AXIS)));
+    }
 
     double p = pos->GetP();
     double r = pos->GetR();

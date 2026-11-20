@@ -127,6 +127,38 @@ TEST(ShadowTest, FlatSceneFallbackRequiresLessThanOneCentimeter)
     }
 }
 
+TEST(ShadowTest, ThickSceneFallbackFollowsEntityElevation)
+{
+    auto* odr = Position::GetOpenDrive();
+    odr->Reset();
+    const osg::ref_ptr<osg::Geode> environment = new osg::Geode;
+    constexpr auto                 mask        = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    Position                       pos;
+
+    for (const float height : {0.01f, 0.02f, 0.11f})
+    {
+        SCOPED_TRACE(height);
+        environment->removeDrawables(0, environment->getNumDrawables());
+        environment->addDrawable(osg::createTexturedQuadGeometry(osg::Vec3(0, 0, 0), osg::Vec3(10, 0, 0), osg::Vec3(0, 10, height)));
+        const roadgeom::RoadGeom mesh(odr, environment.get(), osg::Vec3d(), false, false, "");
+        viewer::Shadow shadow("entity", 0.0, 0.0, std::nan(""), 4.0, 2.0, 1.5, mask, true, nullptr, mesh.flat_scene_z_, mesh.entity_shadow_fallback_);
+        pos.SetZ(2.0);
+        shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+
+        EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+        EXPECT_DOUBLE_EQ(shadow.pat_->getPosition().z(), 2.0);
+        pos.SetZ(-1.0);
+        shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+        EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+        EXPECT_DOUBLE_EQ(shadow.pat_->getPosition().z(), -1.0);
+        EXPECT_FLOAT_EQ(shadow.color_->at(0).a(), 1.0f);
+
+        viewer::Shadow on_plane("plane", 0.0, 0.0, -2.0, 4.0, 2.0, 1.5, mask, true, nullptr, mesh.flat_scene_z_, mesh.entity_shadow_fallback_);
+        on_plane.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+        EXPECT_DOUBLE_EQ(on_plane.pat_->getPosition().z(), -2.0);
+    }
+}
+
 TEST(ShadowTest, ProjectionUsesWorldOrientationOnBankedAndSlopedRoad)
 {
     ASSERT_TRUE(Position::LoadOpenDrive("../../../EnvironmentSimulator/Unittest/xodr/straight_500_superelevation_elevation_curve.xodr"));
