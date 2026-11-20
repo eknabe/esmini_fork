@@ -3363,8 +3363,8 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
                                 pos->GetH(),
                                 osg::Vec3(osg::Z_AXIS)));
 
-    double p = pos->GetPRelative();
-    double r = pos->GetRRelative();
+    double p = pos->GetP();
+    double r = pos->GetR();
 
     if (abs(p - p_) > 0.1 || abs(r - r_) > 0.1)
     {

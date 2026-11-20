@@ -362,8 +362,8 @@ namespace viewer
         osg::ref_ptr<osg::Vec4Array>                 color_;
 
         double   z_                    = 0.0;  // relative elevation of object wrt road surface
-        double   p_                    = 0.0;  // relative pitch of object wrt road surface
-        double   r_                    = 0.0;  // relative roll of object wrt road surface
+        double   p_                    = 0.0;  // world pitch of object
+        double   r_                    = 0.0;  // world roll of object
         double   scale_x_              = 1.0;  // longitudinal scale factor, wrt object orientation
         double   scale_y_              = 1.0;  // lateral scale factor, wrt object orientation
         double   max_z_                = 0.0;

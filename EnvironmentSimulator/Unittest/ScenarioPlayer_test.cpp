@@ -93,6 +93,38 @@ TEST(ShadowTest, GroundPlaneElevationUpdatesShadowAppearance)
     EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
 }
 
+TEST(ShadowTest, ProjectionUsesWorldOrientationOnBankedAndSlopedRoad)
+{
+    ASSERT_TRUE(Position::LoadOpenDrive("../../../EnvironmentSimulator/Unittest/xodr/straight_500_superelevation_elevation_curve.xodr"));
+    Position pos;
+    pos.SetMode(Position::PosModeType::UPDATE, Position::PosMode::P_ABS | Position::PosMode::R_ABS);
+    pos.SetPitch(0.0);
+    pos.SetRoll(0.0);
+    ASSERT_EQ(pos.SetLanePos(1, -1, 150.0, 0.0), Position::ReturnCode::OK);
+    ASSERT_NEAR(pos.GetR(), 0.0, 1e-6);
+    ASSERT_GT(std::abs(std::sin(pos.GetRRelative())), 0.1);
+
+    constexpr auto mask = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    viewer::Shadow shadow("pole", 0.0, 0.0, 0.0, 0.1, 0.1, 2.0, mask, false, nullptr);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_NEAR(shadow.scale_x_, 1.0, 1e-6);
+    EXPECT_NEAR(shadow.scale_y_, 1.0, 1e-6);
+    EXPECT_GT(std::abs((osg::Vec3d(0.0, 1.0, 0.0) * osg::Matrixd::rotate(shadow.pat_->getAttitude())).z()), 0.1);
+
+    ASSERT_EQ(pos.SetLanePos(1, -1, 300.0, 0.0), Position::ReturnCode::OK);
+    ASSERT_NEAR(pos.GetP(), 0.0, 1e-6);
+    ASSERT_GT(std::abs(std::sin(pos.GetPRelative())), 0.1);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_NEAR(shadow.scale_x_, 1.0, 1e-6);
+    EXPECT_NEAR(shadow.scale_y_, 1.0, 1e-6);
+
+    pos.SetPitch(0.3);
+    pos.SetRoll(0.25);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_NEAR(shadow.scale_x_, std::abs(std::cos(pos.GetP())) + 20.0 * std::abs(std::sin(pos.GetP())), 1e-6);
+    EXPECT_NEAR(shadow.scale_y_, std::abs(std::cos(pos.GetR())) + 20.0 * std::abs(std::sin(pos.GetR())), 1e-6);
+}
+
 TEST(RoadGeomTest, LaneHeightBoundaryBeforeRejectedCandidate)
 {
     ASSERT_TRUE(Position::LoadOpenDriveFromXMLString(R"(
