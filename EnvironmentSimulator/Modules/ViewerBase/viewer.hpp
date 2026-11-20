@@ -352,7 +352,8 @@ namespace viewer
                double                       bb_height,
                NodeMask                     node_mask,
                bool                         is_vehicle,
-               osg::ref_ptr<osg::Texture2D> texture);
+               osg::ref_ptr<osg::Texture2D> texture,
+               double                       flat_scene_z = std::nan(""));
 
         void UpdatePositionAndOrientation(roadmanager::Position* pos, double origin_x, double origin_y);
         void Recalculate();
@@ -382,6 +383,7 @@ namespace viewer
         double   offset_z_factor_      = 0.0;           // adjust collar offset based on added Z elevation [-1, 1]
         double   x_offset_             = 0.0;           // x offset from shadow rectangle center
         double   ground_plane_z_       = std::nan("");  // height of ground plane, if any
+        double   flat_scene_z_         = std::nan("");  // height of flat environment model, if any
         NodeMask node_mask_            = NodeMask::NODE_MASK_NONE;
     };
 

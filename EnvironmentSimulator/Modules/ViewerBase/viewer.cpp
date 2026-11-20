@@ -2961,6 +2961,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
 
     if (!SE_Env::Inst().GetOptions().GetOptionSetByEnum(esmini_options::CONFIG_ENUM::DISABLE_SHADOWS))
     {
+        const double flat_scene_z = roadGeom ? roadGeom->flat_scene_z_ : std::nan("");
+
         Shadow* shadow_model_ = new Shadow("shadow_tx_model",
                                            xc - refpoint_x_offset,
                                            tempModelBB._min.z(),
@@ -2970,7 +2972,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
                                            height,
                                            NodeMask::NODE_MASK_ENTITY_MODEL,
                                            type == EntityModel::EntityType::VEHICLE,
-                                           shadow_texture_);
+                                           shadow_texture_,
+                                           flat_scene_z);
 
         Shadow* shadow_bb_ = new Shadow("shadow_tx_filled_bb",
                                         xc - refpoint_x_offset,
@@ -2981,7 +2984,8 @@ EntityModel* Viewer::CreateEntityModel(std::string                    modelFilep
                                         bbDimensions.z(),
                                         NodeMask::NODE_MASK_ENTITY_BB_FILLED,
                                         type == EntityModel::EntityType::VEHICLE,
-                                        shadow_texture_);
+                                        shadow_texture_,
+                                        flat_scene_z);
 
         emodel->SetShadowModel(shadow_model_);
         emodel->SetShadowBB(shadow_bb_);
@@ -3170,9 +3174,11 @@ viewer::Shadow::Shadow(std::string                  name,
                        double                       bb_height,
                        NodeMask                     node_mask,
                        bool                         is_vehicle,
-                       osg::ref_ptr<osg::Texture2D> texture)
+                       osg::ref_ptr<osg::Texture2D> texture,
+                       double                       flat_scene_z)
     : z_(z),
       ground_plane_z_(ground_plane_z),
+      flat_scene_z_(flat_scene_z),
       p_(0.0),
       r_(0.0),
       length_(bb_length),
@@ -3314,8 +3320,7 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
 {
     bool recalculate = false;
 
-    // establish ground level for the shadow, in priority order: road surface, then ground plane
-    // if none of the two is present, skip shadow altogether
+    // Prefer the road surface and generated ground plane over a flat scene model.
     double z_ground   = std::nan("");
     double z_relative = std::nan("");
     if (roadmanager::Position::GetOpenDrive()->GetNumOfRoads() > 0)
@@ -3327,6 +3332,16 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
     {
         z_ground   = ground_plane_z_;
         z_relative = pos->GetZ() - z_ground;
+    }
+    else if (!std::isnan(flat_scene_z_))
+    {
+        z_ground   = flat_scene_z_;
+        z_relative = pos->GetZ() - z_ground;
+        // An entity at the base of a thin scene may be just below its top.
+        if (z_relative >= -RoadGeom::FLAT_SCENE_HEIGHT_LIMIT)
+        {
+            z_relative = MAX(0.0, z_relative);
+        }
     }
 
     if (std::isnan(z_ground) || z_relative < -SMALL_NUMBER)

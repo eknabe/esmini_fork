@@ -16,7 +16,7 @@
         </ControllerCatalog>
     </CatalogLocations>
     <RoadNetwork>
-        <SceneGraphFile filepath="../models/parking_lot.osgb"/>
+        <SceneGraphFile filepath="../models/e6mini.osgb"/>
     </RoadNetwork>
     <Entities>
         <ScenarioObject name="Trailer">

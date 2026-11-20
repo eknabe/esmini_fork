@@ -93,6 +93,40 @@ TEST(ShadowTest, GroundPlaneElevationUpdatesShadowAppearance)
     EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
 }
 
+TEST(ShadowTest, FlatSceneFallbackRequiresLessThanOneCentimeter)
+{
+    auto* odr = Position::GetOpenDrive();
+    odr->Reset();
+    const osg::ref_ptr<osg::Geode> environment = new osg::Geode;
+    constexpr auto                 mask        = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    Position                       pos;
+    pos.SetZ(0.0);
+
+    for (const float height : {0.005f, 0.01f, 0.02f})
+    {
+        SCOPED_TRACE(height);
+        environment->removeDrawables(0, environment->getNumDrawables());
+        environment->addDrawable(osg::createTexturedQuadGeometry(osg::Vec3(0, 0, 0), osg::Vec3(10, 0, 0), osg::Vec3(0, 10, height)));
+        const roadgeom::RoadGeom mesh(odr, environment.get(), osg::Vec3d(), false, false, "");
+        viewer::Shadow           shadow("flat scene", 0.0, 0.0, std::nan(""), 0.5, 0.5, 0.6, mask, false, nullptr, mesh.flat_scene_z_);
+        shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+
+        if (height == 0.005f)
+        {
+            EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+            EXPECT_NEAR(shadow.pat_->getPosition().z(), height, 1e-6);
+            pos.SetZ(-0.02);
+            shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+            EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
+            pos.SetZ(0.0);
+        }
+        else
+        {
+            EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
+        }
+    }
+}
+
 TEST(ShadowTest, ProjectionUsesWorldOrientationOnBankedAndSlopedRoad)
 {
     ASSERT_TRUE(Position::LoadOpenDrive("../../../EnvironmentSimulator/Unittest/xodr/straight_500_superelevation_elevation_curve.xodr"));

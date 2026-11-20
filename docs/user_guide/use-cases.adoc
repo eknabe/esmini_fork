@@ -103,6 +103,8 @@ Example: +
 Add optional flat ground plane: +
 ``./bin/esmini --window 60 60 800 400 --osc ./resources/xosc/slow-lead-vehicle.xosc --ground_plane``
 
+Without OpenDRIVE roads or a generated ground plane, entity shadows fall back to the top of the loaded scene model's bounding box if its vertical extent is less than 0.01 m.
+
 The generated model can be saved, see: link:openscenegraph-3d-models.html#_export_generated_3d_model[Export generated 3D model].
 
 ==== Background color
