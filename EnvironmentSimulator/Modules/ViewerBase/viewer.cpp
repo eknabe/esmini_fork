@@ -3316,28 +3316,31 @@ void viewer::Shadow::UpdatePositionAndOrientation(roadmanager::Position* pos, do
 
     // establish ground level for the shadow, in priority order: road surface, then ground plane
     // if none of the two is present, skip shadow altogether
-    double z_ground = std::nan("");
+    double z_ground   = std::nan("");
+    double z_relative = std::nan("");
     if (roadmanager::Position::GetOpenDrive()->GetNumOfRoads() > 0)
     {
-        if (abs(pos->GetZRelative() - z_) > 1e-2)
-        {
-            // object elevation above road changed, recalculate shadow intensity and edge fading
-            z_          = pos->GetZRelative();
-            recalculate = true;
-        }
-        z_ground = pos->GetZRoad();
+        z_ground   = pos->GetZRoad();
+        z_relative = pos->GetZRelative();
     }
     else if (!std::isnan(ground_plane_z_))
     {
-        z_ground = ground_plane_z_;
-        z_       = pos->GetZ() - z_ground;
+        z_ground   = ground_plane_z_;
+        z_relative = pos->GetZ() - z_ground;
     }
 
-    if (std::isnan(z_ground) || z_ < -SMALL_NUMBER)
+    if (std::isnan(z_ground) || z_relative < -SMALL_NUMBER)
     {
         // no ground or entity below ground level
         pat_->setNodeMask(0x0);
         return;
+    }
+
+    if (!z_initialized_ || abs(z_relative - z_) > 1e-2)
+    {
+        z_             = z_relative;
+        z_initialized_ = true;
+        recalculate    = true;
     }
 
     if (pat_->getNodeMask() != static_cast<osg::Node::NodeMask>(node_mask_))

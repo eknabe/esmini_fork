@@ -372,6 +372,7 @@ namespace viewer
         double   height_               = 0.0;
         double   min_alpha_            = 0.0;
         bool     is_vehicle_           = false;
+        bool     z_initialized_        = false;
         double   height_factor_        = 0.0;
         double   roundness_            = 0.0;           // shift inner shadow edge from circle center outwards [0,1]
         double   collar_min_size_      = 0.0;           // minimum size of the collar (outer area where shadow fades)

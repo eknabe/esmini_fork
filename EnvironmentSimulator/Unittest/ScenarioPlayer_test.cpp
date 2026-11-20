@@ -31,6 +31,50 @@ TEST(ShadowTest, OverallOpacityFadesOnlyWhenBothDimensionsAreBelowCollarMinimum)
     EXPECT_FLOAT_EQ(thin.vertices_->at(5).x() - thin.vertices_->at(4).x(), reference.vertices_->at(5).x() - reference.vertices_->at(4).x());
 }
 
+TEST(ShadowTest, RoadVisibilityUsesCurrentElevationEvenForSmallChanges)
+{
+    ASSERT_TRUE(Position::LoadOpenDrive("../../../resources/xodr/straight_500m.xodr"));
+    Position pos;
+    ASSERT_EQ(pos.SetLanePos(1, -1, 10.0, 0.0), Position::ReturnCode::OK);
+
+    constexpr auto mask = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    viewer::Shadow shadow("pole", 0.0, -0.00645162, 0.0, 0.5, 0.5, 0.6, mask, false, nullptr);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+    EXPECT_DOUBLE_EQ(shadow.z_, 0.0);
+    EXPECT_FLOAT_EQ(shadow.color_->at(0).a(), 1.0f);
+
+    pos.SetZRelative(-0.005);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
+
+    pos.SetZRelative(0.005);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+
+    pos.SetZRelative(0.02);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_NEAR(shadow.color_->at(0).a(), 0.998, 1e-6);
+}
+
+TEST(ShadowTest, GroundPlaneElevationUpdatesShadowAppearance)
+{
+    Position::GetOpenDrive()->Reset();
+    Position       pos;
+    constexpr auto mask = roadgeom::NodeMask::NODE_MASK_ENTITY_MODEL;
+    viewer::Shadow shadow("pole", 0.0, -0.00645162, 0.0, 0.5, 0.5, 0.6, mask, false, nullptr);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_EQ(shadow.pat_->getNodeMask(), static_cast<osg::Node::NodeMask>(mask));
+    EXPECT_DOUBLE_EQ(shadow.z_, 0.0);
+
+    pos.SetZ(2.0);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_NEAR(shadow.color_->at(0).a(), 0.8, 1e-6);
+    pos.SetZ(-0.005);
+    shadow.UpdatePositionAndOrientation(&pos, 0.0, 0.0);
+    EXPECT_EQ(shadow.pat_->getNodeMask(), 0u);
+}
+
 TEST(RoadGeomTest, LaneHeightBoundaryBeforeRejectedCandidate)
 {
     ASSERT_TRUE(Position::LoadOpenDriveFromXMLString(R"(
